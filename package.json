@@ -1,0 +1,13 @@
+{
+  "name": "kardinality-e2e",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  },
+  "scripts": {
+    "e2e": "bash ./scripts/e2e.sh",
+    "e2e:ui": "bash ./scripts/e2e.sh --ui"
+  }
+}
+
+
