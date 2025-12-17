@@ -11,3 +11,7 @@ jobs:
     steps:
       - name: "Dioxus Deploy"
         uses: DioxusLabs/deploy-action@0.1.2
+        with:
+          # annoyingly, building release mode fails right now due to: https://github.com/DioxusLabs/dioxus/pull/5066
+          # so, nee danother flag in its place
+          buildMode: "web"
