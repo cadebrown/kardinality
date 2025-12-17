@@ -966,38 +966,26 @@ button, input, select {
 }
 
 .row-scroll {
-  overflow-x: scroll;
+  overflow-x: auto;
   overflow-y: visible;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  padding: 10px 0;
   scrollbar-gutter: stable both-edges;
   scrollbar-color: rgba(0, 255, 156, 0.35) rgba(0, 0, 0, 0.20);
+  /* Prevent layout shift: row never shrinks below viewport */
+  min-width: 100%;
 }
 
 .row {
   display: flex;
   gap: 12px;
   align-items: flex-end;
-}
-
-.row.center {
-  justify-content: center;
+  /* Fixed layout: cards never wrap, row grows to fit all cards */
+  flex-wrap: nowrap;
+  width: fit-content;
   min-width: 100%;
 }
 
-.drop-slot {
-  width: 18px;
-  height: var(--card-h);
-  border-radius: 10px;
-  border: 1px dashed rgba(0, 255, 156, 0.00);
-  background: rgba(0, 0, 0, 0.00);
-  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
-}
-.drop-slot:hover {
-  border-color: rgba(0, 255, 156, 0.38);
-  background: rgba(0, 255, 156, 0.04);
-  box-shadow: 0 0 22px rgba(0, 255, 156, 0.10);
-}
+/* Drop slots removed - drag onto cards directly for simpler, jitter-free layout */
 
 .ghost-card {
   width: var(--card-w);
@@ -1127,12 +1115,6 @@ button, input, select {
   50% { opacity: 1.0; filter: saturate(1.2); }
 }
 
-.card.drag-hidden {
-  opacity: 0 !important;
-  transform: none !important;
-  pointer-events: none;
-}
-
 .card.drop-in {
   animation: dropIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -1142,21 +1124,14 @@ button, input, select {
   100% { transform: translateY(0px) scale(1.0); }
 }
 
-.drag-ghost {
-  position: fixed;
+.card.dragging {
+  /* Move the real card element via transform without affecting layout. */
+  transform: translate(var(--drag-tx), var(--drag-ty)) rotate(-1.2deg) scale(1.02);
   z-index: 10010;
   pointer-events: none;
-  left: 0;
-  top: 0;
-  transform: translate(-50%, -50%) rotate(-1.2deg) scale(1.02);
-  opacity: 0.94;
-  filter: saturate(1.14) contrast(1.06);
-  will-change: transform, left, top;
   transition: none;
-}
-.drag-ghost.dropping {
-  transition: left 160ms cubic-bezier(0.16, 1, 0.3, 1), top 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
-  transform: translate(-50%, -50%) rotate(0deg) scale(0.98);
+  filter: saturate(1.15) contrast(1.08);
+  box-shadow: 0 32px 86px rgba(0, 0, 0, 0.66), 0 0 60px rgba(0, 255, 156, 0.18), 0 0 92px rgba(0, 200, 255, 0.10);
 }
 
 .app.is-dragging .card:hover {

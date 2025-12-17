@@ -17,6 +17,10 @@ thiserror = "2"
 
 dioxus = { version = "0.7.2" }
 
+# Async runtime for desktop builds (sleep_ms for playback timing).
+async-std = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 # Better panics in the browser console.
 console_error_panic_hook = "0.1"
 

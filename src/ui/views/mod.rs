@@ -6,6 +6,7 @@ mod pile;
 mod sidebar;
 
 pub use cards::CardView;
+pub use cards::PtrDown;
 pub use deck::DeckWidget;
 pub use hud::RegistersBody;
 pub use kardinomicon::KardinomiconModal;

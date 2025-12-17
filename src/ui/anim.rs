@@ -317,6 +317,63 @@ mod imp {
         let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
         cb.forget();
     }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum HitZone {
+        Hand,
+        Deck,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct HitTest {
+        pub card_id: Option<u64>,
+        /// Relative X within the hit card (0..1). Only set when `card_id` is Some.
+        pub rel_x: Option<f64>,
+        /// The zone under the pointer (hand/deck), if any.
+        pub zone: Option<HitZone>,
+    }
+
+    pub fn hit_test(client_x: f64, client_y: f64) -> HitTest {
+        let Some(window) = web_sys::window() else {
+            return HitTest { card_id: None, rel_x: None, zone: None };
+        };
+        let Some(doc) = window.document() else {
+            return HitTest { card_id: None, rel_x: None, zone: None };
+        };
+
+        let el = doc.element_from_point(client_x as f32, client_y as f32);
+
+        let mut zone: Option<HitZone> = None;
+        if let Some(el) = el.as_ref() {
+            if el.closest(r#"[data-testid="hand-zone"]"#).ok().flatten().is_some() {
+                zone = Some(HitZone::Hand);
+            } else if el.closest(r#"[data-testid="deck-zone"]"#).ok().flatten().is_some() {
+                zone = Some(HitZone::Deck);
+            }
+        }
+
+        let Some(el) = el else {
+            return HitTest { card_id: None, rel_x: None, zone };
+        };
+
+        // Find the nearest card element by id="card-<u64>"
+        let card_el = el
+            .closest(r#"[id^="card-"]"#)
+            .ok()
+            .flatten();
+
+        let Some(card_el) = card_el else {
+            return HitTest { card_id: None, rel_x: None, zone };
+        };
+
+        let id_str = card_el.id();
+        let id = id_str.trim_start_matches("card-").parse::<u64>().ok();
+        let rect = card_el.get_bounding_client_rect();
+        let w = rect.width().max(1.0);
+        let rel = ((client_x - rect.left()) / w).clamp(0.0, 1.0);
+
+        HitTest { card_id: id, rel_x: Some(rel), zone }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -332,37 +389,78 @@ mod imp {
     }
 
     pub fn visible_card_ids(
-        _deck: &[kardinality::game::CardInstance],
-        _hand: &[kardinality::game::CardInstance],
+        deck: &[kardinality::game::CardInstance],
+        hand: &[kardinality::game::CardInstance],
     ) -> Vec<String> {
-        Vec::new()
+        // Desktop: basic impl for animations to run without errors.
+        let mut ids = Vec::with_capacity(deck.len() + hand.len());
+        for c in deck {
+            ids.push(format!("card-{}", c.id));
+        }
+        for c in hand {
+            ids.push(format!("card-{}", c.id));
+        }
+        ids
     }
 
     pub fn capture_rects(_ids: &[String]) -> HashMap<String, Rect> {
+        // Desktop: no-op; Dioxus desktop doesn't expose getBoundingClientRect, so skip FLIP.
         HashMap::new()
     }
 
-    pub fn play_flip(_before: HashMap<String, Rect>, _duration_ms: f64) {}
+    pub fn play_flip(_before: HashMap<String, Rect>, _duration_ms: f64) {
+        // Desktop: no-op; no FLIP animations without DOM rect access.
+    }
 
-    pub fn scroll_card_into_view(_card_dom_id: &str) {}
+    pub fn scroll_card_into_view(_card_dom_id: &str) {
+        // Desktop: no-op; Dioxus desktop manages scrolling internally.
+    }
 
     pub fn rect_for_testid(_testid: &str) -> Option<Rect> {
+        // Desktop: no-op; used for playback projectile targeting, gracefully skips.
         None
     }
 
     pub fn rect_for_id(_id: &str) -> Option<Rect> {
+        // Desktop: no-op; used for drag overlay positioning, gracefully skips.
         None
     }
 
-    pub fn set_opacity_for_id(_id: &str, _opacity: f64) {}
+    pub fn set_opacity_for_id(_id: &str, _opacity: f64) {
+        // Desktop: no-op; opacity changes are CSS-only, no DOM manipulation needed.
+    }
 
-    pub async fn sleep_ms(_ms: i32) {}
+    pub async fn sleep_ms(ms: i32) {
+        // Desktop: real async sleep for playback timing (using std::thread for simplicity).
+        use std::time::Duration;
+        async_std::task::sleep(Duration::from_millis(ms as u64)).await;
+    }
 
     pub fn query_param(_key: &str) -> Option<String> {
+        // Desktop: no query params in native builds.
         None
     }
 
-    pub fn add_temp_class_for_id(_id: &str, _class: &str, _ms: i32) {}
+    pub fn add_temp_class_for_id(_id: &str, _class: &str, _ms: i32) {
+        // Desktop: no-op; temporary class manipulation for "pop-in" effect, CSS-only fallback.
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub enum HitZone {
+        Hand,
+        Deck,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct HitTest {
+        pub card_id: Option<u64>,
+        pub rel_x: Option<f64>,
+        pub zone: Option<HitZone>,
+    }
+
+    pub fn hit_test(_client_x: f64, _client_y: f64) -> HitTest {
+        HitTest { card_id: None, rel_x: None, zone: None }
+    }
 }
 
 pub use imp::*;

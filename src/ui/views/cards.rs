@@ -1,20 +1,28 @@
 use dioxus::prelude::*;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PtrDown {
+    pub index: usize,
+    pub client_x: f64,
+    pub client_y: f64,
+    pub elem_x: f64,
+    pub elem_y: f64,
+}
+
 #[component]
 pub fn CardView(
     index: usize,
     card: kardinality::game::CardInstance,
     selected: bool,
-    drag_hidden: bool,
+    dragging: bool,
+    drag_style: String,
     primary_icon: &'static str,
     on_select: EventHandler<usize>,
     on_primary: EventHandler<usize>,
     on_move_left: EventHandler<usize>,
     on_move_right: EventHandler<usize>,
     on_docs: EventHandler<String>,
-    on_drag_start: EventHandler<usize>,
-    on_drag_end: EventHandler<()>,
-    on_drop: EventHandler<usize>,
+    on_ptr_down: EventHandler<PtrDown>,
 ) -> Element {
     let badge = format!("#{index}");
 
@@ -93,8 +101,8 @@ pub fn CardView(
     } else {
         format!("card {kind_class}")
     };
-    if drag_hidden {
-        class.push_str(" drag-hidden");
+    if dragging {
+        class.push_str(" dragging");
     }
 
     rsx! {
@@ -102,45 +110,31 @@ pub fn CardView(
             class: "{class}",
             id: "card-{card.id}",
             "data-selected": if selected { "true" } else { "false" },
-            "data-drag-hidden": if drag_hidden { "true" } else { "false" },
+            "data-dragging": if dragging { "true" } else { "false" },
             title: "Click to select • Drag to move • 📖 for docs",
+            style: "{drag_style}",
             onclick: move |_| on_select.call(index),
-            draggable: "true",
-            ondragstart: move |evt: DragEvent| {
-                let _ = evt
-                    .data()
-                    .data_transfer()
-                    .set_data("text/plain", "kardinality-card");
-                evt.data().data_transfer().set_effect_allowed("move");
-
-                // Hide the browser's default drag-preview by setting a 1x1 invisible drag image.
-                // We'll render our own `drag-ghost` overlay from app state instead.
-                if let Some(web_evt) = evt.data().downcast::<web_sys::DragEvent>() {
-                    if let Some(dt) = web_evt.data_transfer() {
-                        if let Some(window) = web_sys::window() {
-                            if let Some(doc) = window.document() {
-                                if let Some(ghost) = doc.get_element_by_id("drag-ghost") {
-                                    dt.set_drag_image(&ghost, 0, 0);
-                                }
-                            }
-                        }
-                    }
-                }
-                on_drag_start.call(index);
-            },
-            ondragend: move |_| on_drag_end.call(()),
-            ondragover: move |evt| evt.prevent_default(),
-            ondrop: move |evt| {
-                evt.prevent_default();
-                evt.stop_propagation();
-                on_drop.call(index);
+            onpointerdown: move |evt: PointerEvent| {
+                let c = evt.data().client_coordinates();
+                let e = evt.data().element_coordinates();
+                on_ptr_down.call(PtrDown {
+                    index,
+                    client_x: c.x,
+                    client_y: c.y,
+                    elem_x: e.x,
+                    elem_y: e.y,
+                });
             },
             div { class: "card-top",
                 div { class: "card-index", "{badge}" }
                 button {
                     class: "card-docs",
                     title: "Docs",
+                    draggable: "false",
                     onclick: move |evt| {
+                        evt.stop_propagation();
+                    },
+                    onmousedown: move |evt| {
                         evt.stop_propagation();
                         on_docs.call(def_id.clone());
                     },

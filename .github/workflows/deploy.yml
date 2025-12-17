@@ -24,8 +24,12 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Install cargo-binstall
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
       - name: Install Dioxus CLI
-        run: cargo install dioxus-cli
+        run: cargo binstall dioxus-cli -y --force
 
       - name: Build
         run: dx bundle --release --web --out-dir bundle-web
@@ -36,7 +40,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'bundle-web'
+          path: 'bundle-web/public'
 
       - name: Deploy to GitHub Pages
         id: deployment

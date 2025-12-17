@@ -8,8 +8,9 @@ test("large decks/hands keep topbar + play button accessible", async ({ page }, 
   const play = page.getByTestId("play");
 
   // With prefill, deck should be large enough to overflow horizontally.
-  const deckCount = await deck.locator(".card").count();
-  expect(deckCount).toBeGreaterThanOrEqual(20);
+  await expect
+    .poll(async () => deck.locator(".card").count(), { timeout: 15000 })
+    .toBeGreaterThanOrEqual(20);
 
   // Move a bunch of cards into hand.
   for (let i = 0; i < 12; i++) {
