@@ -33,7 +33,8 @@ impl Default for UiSettings {
     fn default() -> Self {
         Self {
             theme: UiTheme::Crt,
-            effects: true,
+            // Effects are awesome, but default OFF for now so the baseline UI is stable/readable.
+            effects: false,
         }
     }
 }

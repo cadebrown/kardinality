@@ -54,7 +54,8 @@ pub struct GameState {
     /// Active hand/program to execute in order.
     pub hand: Vec<CardInstance>,
 
-    pub discard: Vec<CardInstance>,
+    /// Executed card pile (discard). Cards played from Hand are placed here.
+    pub pile: Vec<CardInstance>,
 
     /// Full execution history (oldest first). Used for cards like `clone()`/`again()`/`mutate()`.
     pub history: Vec<HistoryEntry>,
@@ -76,7 +77,7 @@ impl GameState {
             deck,
             collection: Vec::new(),
             hand: Vec::new(),
-            discard: Vec::new(),
+            pile: Vec::new(),
             history: Vec::new(),
             trace: Vec::new(),
             limits,

@@ -107,7 +107,7 @@ pub fn Sidebar(
             div { class: "kv", span { "Source" } code { "{state.deck.len()}" } }
             div { class: "kv", span { "Deck" } code { "{state.collection.len()}" } }
             div { class: "kv", span { "Hand" } code { "{state.hand.len()}" } }
-            div { class: "kv", span { "Discard" } code { "{state.discard.len()}" } }
+            div { class: "kv", span { "Pile" } code { "{state.pile.len()}" } }
             div { class: "kv", span { "Trace" } code { "{state.trace.len()}" } }
             div { class: "kv", span { "Phase" } code { "{state.phase:?}" } }
         }

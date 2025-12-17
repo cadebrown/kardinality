@@ -1,14 +1,7 @@
 use dioxus::prelude::*;
 
 #[component]
-pub fn TopHud(
-    bankroll: i64,
-    score: i64,
-    target: i64,
-    collection_count: usize,
-    hand_count: usize,
-    level: u32,
-) -> Element {
+pub fn ScoreBankBody(bankroll: i64, score: i64, target: i64) -> Element {
     let pct = if target <= 0 {
         0.0
     } else {
@@ -28,33 +21,52 @@ pub fn TopHud(
     };
 
     rsx! {
-        div { class: "panel hud-panel",
-            h2 { class: "hud-title", "Score" }
+        h2 { class: "hud-title", "Score" }
 
-            div { class: "scoreline",
-                div { class: "scorebig", "data-testid": "score-value", "{score}" }
-                div { class: "scoremeta",
-                    div { class: "hint", "Target" }
-                    div { class: "scoretarget", "{target}" }
-                }
-            }
-
-            div { class: "progress",
-                div { class: "progress-fill {stage}", style: "{fill_style}" }
-            }
-
-            div { class: "bankline",
-                div { class: "hint", "Bankroll" }
-                div { class: "bankbig", "${bankroll}" }
+        div { class: "scoreline",
+            div { class: "scorebig", "data-testid": "score-value", "{score}" }
+            div { class: "scoremeta",
+                div { class: "hint", "Target" }
+                div { class: "scoretarget", "{target}" }
             }
         }
 
+        div { class: "progress",
+            div { class: "progress-fill {stage}", style: "{fill_style}" }
+        }
+
+        div { class: "bankline",
+            div { class: "hint", "Money" }
+            div { class: "bankbig", "data-testid": "money-value", "${bankroll}" }
+        }
+    }
+}
+
+#[component]
+pub fn RegistersBody(collection_count: usize, hand_count: usize) -> Element {
+    rsx! {
+        h2 { class: "hud-title", "Registers" }
+        div { class: "kv", span { "len_deck" } code { "{collection_count}" } }
+        div { class: "kv", span { "len_hand" } code { "{hand_count}" } }
+    }
+}
+
+#[component]
+pub fn TopHud(
+    bankroll: i64,
+    score: i64,
+    target: i64,
+    collection_count: usize,
+    hand_count: usize,
+    level: u32,
+) -> Element {
+    rsx! {
         div { class: "panel hud-panel",
-            h2 { class: "hud-title", "Registers" }
-            div { class: "kv", span { "len_deck" } code { "{collection_count}" } }
-            div { class: "kv", span { "len_hand" } code { "{hand_count}" } }
-            div { class: "kv", span { "lvl" } code { "{level}" } }
-            div { class: "kv", span { "score" } code { "{score}" } }
+            ScoreBankBody { bankroll, score, target }
+        }
+
+        div { class: "panel hud-panel",
+            RegistersBody { collection_count, hand_count }
         }
     }
 }

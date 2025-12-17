@@ -8,6 +8,7 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:8080",
     headless: process.env.E2E_HEADLESS !== "false",
     viewport: { width: 1280, height: 720 },
+    screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "retain-on-failure",
   },

@@ -85,7 +85,7 @@ pub fn KardinomiconModal(
                                 "Kardlang is integer-only with strict budgets. Power scales with length."
                                 br {}
                                 "Key registers: "
-                                code { "len_deck" } " • " code { "len_hand" } " • " code { "lvl" } " • " code { "score" }
+                                code { "len_deck" } " • " code { "len_hand" } " • " code { "lvl" }
                                 br {}
                                 "Tip: drop between cards to insert, or on a card to swap."
                             }
@@ -139,7 +139,7 @@ pub fn KardinomiconModal(
                                 br {}
                                 "Expressions support " code { "+" } " and " code { "*" } " with parentheses."
                                 br {}
-                                "Registers: " code { "len_deck" } ", " code { "len_hand" } ", " code { "lvl" } ", " code { "score" } ", and writable " code { "acc" } "."
+                                "Registers: " code { "len_deck" } ", " code { "len_hand" } ", " code { "lvl" } ", and writable " code { "acc" } "."
                             }
                             pre { class: "kcard-doc", "{kardinality::kardlang::GRAMMAR.trim()}" }
                         }

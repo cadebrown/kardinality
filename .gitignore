@@ -1,3 +1,6 @@
 /target
 /dist
 /.dioxus
+
+/node_modules
+/test-results

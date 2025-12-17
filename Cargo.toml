@@ -3,23 +3,38 @@ name = "kardinality"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-rand = "0.8"
-rand_chacha = "0.3"
-serde = { version = "1", features = ["derive"] }
-thiserror = "1"
+[features]
+default = ["web"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# Dioxus UI (DOM + CSS) for the browser build.
-dioxus = { version = "0.7.2", features = ["web"] }
+[dependencies]
+rand = "0.9"
+rand_chacha = "0.9"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+dioxus = { version = "0.7.2" }
 
 # Better panics in the browser console.
 console_error_panic_hook = "0.1"
 
 # Browser APIs for animations and DOM inspection (used via Rust; no hand-written JS).
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "DomRect", "HtmlElement", "CssStyleDeclaration"] }
 
 # Ensure `rand` works on wasm by enabling JS-backed entropy (even though we prefer deterministic seeds).
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+
+
+
+
+
+
+#[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Dioxus UI (DOM + CSS) for the browser build.
+

@@ -1,3 +1,4 @@
+use rand::prelude::IndexedRandom;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -38,7 +39,7 @@ pub enum GameError {
     #[error("card script cost {cost} exceeds budget {budget}: {name}")]
     CardOverBudget { name: String, cost: usize, budget: usize },
 
-    #[error("cannot draw a hand: deck and discard are empty")]
+    #[error("cannot draw a hand: deck and pile are empty")]
     NoCards,
 }
 
@@ -138,20 +139,32 @@ impl Engine {
 
     fn draw_to_collection(&mut self, count: usize) -> Result<(), GameError> {
         for _ in 0..count {
-            if let Some(card) = self.draw_one()? {
+            if let Some(card) = self.draw_one(true)? {
                 self.state.collection.push(card);
             }
         }
         Ok(())
     }
 
-    fn draw_one(&mut self) -> Result<Option<CardInstance>, GameError> {
+    fn draw_to_collection_source_only(&mut self, count: usize) -> Result<(), GameError> {
+        for _ in 0..count {
+            if let Some(card) = self.draw_one(false)? {
+                self.state.collection.push(card);
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_one(&mut self, allow_recycle: bool) -> Result<Option<CardInstance>, GameError> {
         if self.state.deck.is_empty() {
-            if self.state.discard.is_empty() {
+            if !allow_recycle {
+                return Ok(None);
+            }
+            if self.state.pile.is_empty() {
                 return Err(GameError::NoCards);
             }
 
-            self.state.deck.append(&mut self.state.discard);
+            self.state.deck.append(&mut self.state.pile);
             self.state.deck.shuffle(&mut self.rng);
         }
 
@@ -213,8 +226,8 @@ impl Engine {
                 }
             }
 
-            // After execution, cards return to the player's deck (selection pool).
-            self.state.collection.push(card.clone());
+            // After execution, cards go to the pile (discard).
+            self.state.pile.push(card.clone());
 
             // Track full history for cards like clone/again/mutate.
             self.state.history.push(crate::game::HistoryEntry {
@@ -235,6 +248,14 @@ impl Engine {
             }
 
             exec_index = exec_index.saturating_add(1);
+        }
+
+        // Always draw 1 card after playing a hand (soft reward / pacing).
+        {
+            let effect = Effect::Draw(1);
+            // Source-only (do not consume the pile).
+            let _ = self.draw_to_collection_source_only(1);
+            self.state.trace.push(TraceEvent::EffectApplied { effect });
         }
 
         if self.state.score >= self.state.target_score {
@@ -274,12 +295,13 @@ impl Engine {
                     return;
                 };
 
-                // If the last played card was mutated, clone its current def_id from the deck.
+                // If the last played card was mutated, clone its current def_id from the pile/deck.
                 let def_id = self
                     .state
-                    .collection
+                    .pile
                     .iter()
                     .find(|c| c.id == last.card_id)
+                    .or_else(|| self.state.collection.iter().find(|c| c.id == last.card_id))
                     .map(|c| c.def_id.clone())
                     .unwrap_or_else(|| last.def_id.clone());
 
@@ -295,14 +317,15 @@ impl Engine {
                     return;
                 };
 
-                let Some(target) = self
+                let target = self
                     .state
-                    .collection
+                    .pile
                     .iter_mut()
                     .find(|c| c.id == last.card_id)
-                else {
+                    .or_else(|| self.state.collection.iter_mut().find(|c| c.id == last.card_id));
+                let Some(target) = target else {
                     self.state.trace.push(TraceEvent::Info(
-                        "mutate: last played card not in deck".to_string(),
+                        "mutate: last played card not in pile/deck".to_string(),
                     ));
                     return;
                 };
@@ -391,12 +414,11 @@ impl VmContext for GameCtx<'_> {
             "len_deck" | "len_pool" | "len_collection" => Some(self.state.collection.len() as i64),
             "len_source" | "len_draw" => Some(self.state.deck.len() as i64),
             "len_hand" => Some(self.state.hand.len() as i64),
-            "len_discard" => Some(self.state.discard.len() as i64),
+            "len_pile" | "len_discard" => Some(self.state.pile.len() as i64),
             "deck" => Some(self.state.collection.len() as i64),
             "hand" => Some(self.state.hand.len() as i64),
             "lvl" => Some(self.state.level as i64),
             "acc" => Some(self.state.acc),
-            "score" => Some(self.state.score),
             "bankroll" => Some(self.state.bankroll),
             "level" => Some(self.state.level as i64),
             "target" => Some(self.state.target_score),
@@ -428,7 +450,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn draw_then_play_applies_effects_and_returns_cards_to_deck() {
+    fn draw_then_play_applies_effects_and_moves_cards_to_pile() {
         let deck = vec![CardInstance::new(1, "score_2")];
         let mut engine = Engine::with_deck(123, deck, Limits::default());
 
@@ -436,7 +458,7 @@ mod tests {
             .dispatch(Action::DrawToCollection { count: 1 })
             .unwrap();
         assert_eq!(engine.state.collection.len(), 1);
-        assert_eq!(engine.state.discard.len(), 0);
+        assert_eq!(engine.state.pile.len(), 0);
 
         engine
             .dispatch(Action::MoveCollectionToHand { index: 0 })
@@ -446,8 +468,8 @@ mod tests {
         engine.dispatch(Action::PlayHand).unwrap();
         assert_eq!(engine.state.score, 2);
         assert_eq!(engine.state.hand.len(), 0);
-        assert_eq!(engine.state.collection.len(), 1);
-        assert_eq!(engine.state.discard.len(), 0);
+        assert_eq!(engine.state.collection.len(), 0);
+        assert_eq!(engine.state.pile.len(), 1);
     }
 
     #[test]
