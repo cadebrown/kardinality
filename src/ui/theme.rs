@@ -161,6 +161,15 @@ button, input, select {
   animation: flicker 3.2s infinite steps(60);
 }
 
+/* During drag, disable CRT/scanline overlays so the dragged card reads cleanly above everything. */
+.app.is-dragging::before,
+.app.is-dragging::after,
+.app.is-dragging.theme-crt:not(.effects-off)::before,
+.app.is-dragging.theme-crt:not(.effects-off)::after {
+  opacity: 0 !important;
+  animation: none !important;
+}
+
 @keyframes scanlines {
   0% { transform: translateY(0); }
   100% { transform: translateY(4px); }
@@ -332,6 +341,30 @@ button, input, select {
   min-height: 0;
   overflow: hidden;
   overflow-x: hidden;
+}
+
+/* Floating drag layer: dragged cards are truly unparented + fixed-positioned here. */
+.drag-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20000;
+}
+
+.app.is-dragging .topbar {
+  /* Let dragged cards float over the topbar (stacking contexts are atomic). */
+  z-index: 10;
+}
+
+.app.is-dragging .content {
+  /* Critical: lift the entire content layer above the topbar. */
+  position: relative;
+  z-index: 1000;
+}
+
+/* Backdrop-filter can cause odd compositing/stacking in some browsers while dragging transformed elements. */
+.app.is-dragging .panel {
+  backdrop-filter: none !important;
 }
 
 .topbar {
@@ -1125,9 +1158,9 @@ button, input, select {
 }
 
 .card.dragging {
-  /* Move the real card element via transform without affecting layout. */
-  transform: translate(var(--drag-tx), var(--drag-ty)) rotate(-1.2deg) scale(1.02);
-  z-index: 10010;
+  /* Style only; positioning is handled by inline `left/top` while unparented. */
+  transform: rotate(-1.2deg) scale(1.02);
+  z-index: 20001;
   pointer-events: none;
   transition: none;
   filter: saturate(1.15) contrast(1.08);

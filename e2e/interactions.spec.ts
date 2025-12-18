@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("play/shop hover does not resize buttons", async ({ page }) => {
+test("play/shop hover does not resize buttons", async ({ page }, testInfo) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const play = page.getByTestId("play");
@@ -23,9 +23,11 @@ test("play/shop hover does not resize buttons", async ({ page }) => {
   expect(s2).not.toBeNull();
   expect(Math.abs((s1!.width ?? 0) - (s2!.width ?? 0))).toBeLessThan(0.5);
   expect(Math.abs((s1!.height ?? 0) - (s2!.height ?? 0))).toBeLessThan(0.5);
+
+  await page.screenshot({ path: testInfo.outputPath("01-hover.png"), fullPage: true });
 });
 
-test("keyboard selection keeps a visible selected card", async ({ page }) => {
+test("keyboard selection keeps a visible selected card", async ({ page }, testInfo) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const sel1 = page.locator('.card[data-selected="true"]').first();
@@ -38,9 +40,11 @@ test("keyboard selection keeps a visible selected card", async ({ page }) => {
   const id2 = await sel2.getAttribute("id");
 
   expect(id2).not.toEqual(id1);
+
+  await page.screenshot({ path: testInfo.outputPath("01-kb-selected.png"), fullPage: true });
 });
 
-test("dragging a card moves the real element and drops into Hand", async ({ page }) => {
+test("dragging a card moves the real element and drops into Hand", async ({ page }, testInfo) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const deck = page.getByTestId("deck-zone");
@@ -58,12 +62,47 @@ test("dragging a card moves the real element and drops into Hand", async ({ page
   await page.mouse.move(sb!.x + sb!.width / 2, sb!.y + sb!.height / 2);
   await page.mouse.down();
   await page.mouse.move(sb!.x + sb!.width / 2 + 60, sb!.y + sb!.height / 2 + 6, { steps: 6 });
-  await expect(source).toHaveAttribute("data-dragging", "true");
+  const floating = page.locator(".drag-layer .card.dragging").first();
+  await expect(floating).toBeVisible();
+  await expect(floating).toHaveAttribute("data-dragging", "true");
+
+  // Mid-drag: verify it should be visually on top (high z-index) and not clipped by parent overflows.
+  const css = await page.evaluate(() => {
+    const card = document.querySelector(".drag-layer .card.dragging") as HTMLElement | null;
+    const layer = document.querySelector(".drag-layer") as HTMLElement | null;
+    const main = document.querySelector(".main") as HTMLElement | null;
+    const content = document.querySelector(".content") as HTMLElement | null;
+    const handbar = document.querySelector('[data-testid="hand-zone"]') as HTMLElement | null;
+    const topbar = document.querySelector(".topbar") as HTMLElement | null;
+    const sidebar = document.querySelector(".sidebar") as HTMLElement | null;
+
+    const s = (el: HTMLElement | null) => (el ? getComputedStyle(el) : null);
+    const zi = (el: HTMLElement | null) => (el ? parseInt(getComputedStyle(el).zIndex || "0", 10) || 0 : 0);
+
+    return {
+      cardZ: zi(card),
+      topbarZ: zi(topbar),
+      sidebarZ: zi(sidebar),
+      contentZ: zi(content),
+      layerZ: zi(layer),
+      cardPos: s(card)?.position,
+      mainOverflow: s(main)?.overflow,
+      contentOverflow: s(content)?.overflow,
+      handbarOverflow: s(handbar)?.overflow,
+    };
+  });
+  expect(css.layerZ).toBeGreaterThan(css.topbarZ);
+  expect(css.cardZ).toBeGreaterThan(css.sidebarZ);
+  expect(css.cardPos).toBe("fixed");
+
+  await page.screenshot({ path: testInfo.outputPath("01-mid-drag.png"), fullPage: true });
 
   await page.mouse.move(hb!.x + hb!.width / 2, hb!.y + hb!.height / 2, { steps: 10 });
   await page.mouse.up();
 
   await expect(page.getByTestId("hand-zone").locator(".card")).toHaveCount(1);
+
+  await page.screenshot({ path: testInfo.outputPath("02-after-drop.png"), fullPage: true });
 });
 
 async function dragFromTo(page: any, from: any, to: any, toEdge: "left" | "center" | "right" = "center") {
@@ -84,7 +123,7 @@ async function dragFromTo(page: any, from: any, to: any, toEdge: "left" | "cente
   await page.waitForTimeout(120);
 }
 
-test("drag: insert-before vs swap works inside Deck", async ({ page }) => {
+test("drag: insert-before vs swap works inside Deck", async ({ page }, testInfo) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const deck = page.getByTestId("deck-zone");
@@ -111,9 +150,11 @@ test("drag: insert-before vs swap works inside Deck", async ({ page }) => {
   expect(idxBank2).toBeGreaterThanOrEqual(0);
   expect(idxDraw2).toBeGreaterThanOrEqual(0);
   expect(idxBank2).not.toEqual(idxDraw2);
+
+  await page.screenshot({ path: testInfo.outputPath("01-deck-insert-swap.png"), fullPage: true });
 });
 
-test("drag: insert-after works inside Hand (no drop slots)", async ({ page }) => {
+test("drag: insert-after works inside Hand (no drop slots)", async ({ page }, testInfo) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const deck = page.getByTestId("deck-zone");
@@ -144,6 +185,8 @@ test("drag: insert-after works inside Hand (no drop slots)", async ({ page }) =>
   expect(idxScore).toBeGreaterThanOrEqual(0);
   expect(idxDraw).toBeGreaterThanOrEqual(0);
   expect(idxScore).toBeLessThan(idxDraw);
+
+  await page.screenshot({ path: testInfo.outputPath("01-hand-insert-after.png"), fullPage: true });
 });
 
 

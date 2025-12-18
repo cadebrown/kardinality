@@ -694,35 +694,7 @@ pub fn App() -> Element {
     };
 
     // Precompute drag styles outside `rsx!` (the macro doesn't like `let` inside loops).
-    let hand_ui: Vec<(kardinality::game::CardInstance, bool, String)> = view_hand
-        .iter()
-        .cloned()
-        .map(|card| {
-            if let Some(d) = drag_value.as_ref() {
-                if d.card.id == card.id && d.moved {
-                    let tx = d.client_x - d.off_x - d.origin_left;
-                    let ty = d.client_y - d.off_y - d.origin_top;
-                    return (card, true, format!("--drag-tx:{tx}px; --drag-ty:{ty}px;"));
-                }
-            }
-            (card, false, String::new())
-        })
-        .collect();
-
-    let deck_ui: Vec<(kardinality::game::CardInstance, bool, String)> = view_collection
-        .iter()
-        .cloned()
-        .map(|card| {
-            if let Some(d) = drag_value.as_ref() {
-                if d.card.id == card.id && d.moved {
-                    let tx = d.client_x - d.off_x - d.origin_left;
-                    let ty = d.client_y - d.off_y - d.origin_top;
-                    return (card, true, format!("--drag-tx:{tx}px; --drag-ty:{ty}px;"));
-                }
-            }
-            (card, false, String::new())
-        })
-        .collect();
+    // When dragging, render the dragged card in a floating drag-layer instead of inside the list.
 
     rsx! {
         style { {theme::CSS} }
@@ -1254,17 +1226,25 @@ pub fn App() -> Element {
                                     div { class: "ghost-hint", "Drop to add" }
                                 }
                             }
-                            for (idx, item) in hand_ui.iter().enumerate() {
-                                crate::ui::views::CardView {
-                                    key: "hand-{item.0.id}",
-                                    index: idx,
-                                    card: item.0.clone(),
-                                    selected: focus_value == FocusZone::Hand && selected_hand == idx,
-                                    dragging: item.1,
-                                    drag_style: item.2.clone(),
-                                    primary_icon: "↓",
-                                    on_select: move |idx| { focus.set(FocusZone::Hand); sel_hand.set(idx); },
-                                    on_primary: move |idx| {
+                            for (idx, card) in view_hand.iter().enumerate() {
+                                // Unparent the dragged card: render a placeholder here and the real card in `.drag-layer`.
+                                if drag_value
+                                    .as_ref()
+                                    .map(|d| d.moved && d.card.id == card.id)
+                                    .unwrap_or(false)
+                                {
+                                    div { key: "slot-{card.id}", class: "card-slot", style: "width: var(--card-w); height: var(--card-h);" }
+                                } else {
+                                    crate::ui::views::CardView {
+                                        key: "card-{card.id}",
+                                        index: idx,
+                                        card: card.clone(),
+                                        selected: focus_value == FocusZone::Hand && selected_hand == idx,
+                                        dragging: false,
+                                        drag_style: String::new(),
+                                        primary_icon: "↓",
+                                        on_select: move |idx| { focus.set(FocusZone::Hand); sel_hand.set(idx); },
+                                        on_primary: move |idx| {
                                         let before = {
                                             let st = engine.read();
                                             let ids = anim::visible_card_ids(&st.state.collection, &st.state.hand);
@@ -1280,27 +1260,27 @@ pub fn App() -> Element {
                                         let new_hand_len = eng.state.hand.len();
                                         sel_hand.set(if new_hand_len == 0 { 0 } else { idx.min(new_hand_len - 1) });
                                         anim::play_flip(before, 280.0);
-                                    },
-                                    on_move_left: move |idx| {
+                                        },
+                                        on_move_left: move |idx| {
                                         if idx == 0 { return; }
                                         let mut eng = engine.write();
                                         let _ = eng.dispatch(kardinality::Action::ReorderHand { from: idx, to: idx - 1 });
                                         focus.set(FocusZone::Hand);
                                         sel_hand.set(idx - 1);
-                                    },
-                                    on_move_right: move |idx| {
+                                        },
+                                        on_move_right: move |idx| {
                                         let len = engine.read().state.hand.len();
                                         if idx + 1 >= len { return; }
                                         let mut eng = engine.write();
                                         let _ = eng.dispatch(kardinality::Action::ReorderHand { from: idx, to: idx + 1 });
                                         focus.set(FocusZone::Hand);
                                         sel_hand.set(idx + 1);
-                                    },
-                                    on_docs: move |id| {
+                                        },
+                                        on_docs: move |id| {
                                         kardinomicon_target.set(Some(id));
                                         kardinomicon_open.set(true);
-                                    },
-                                    on_ptr_down: move |pd: crate::ui::views::PtrDown| {
+                                        },
+                                        on_ptr_down: move |pd: crate::ui::views::PtrDown| {
                                         if let Some(card) = engine.read().state.hand.get(pd.index).cloned() {
                                             drag.set(Some(PtrDrag {
                                                 zone: FocusZone::Hand,
@@ -1317,7 +1297,8 @@ pub fn App() -> Element {
                                         }
                                         focus.set(FocusZone::Hand);
                                         sel_hand.set(pd.index);
-                                    },
+                                        },
+                                    }
                                 }
                             }
                         }
@@ -1343,17 +1324,24 @@ pub fn App() -> Element {
                                     div { class: "ghost-hint", "Drop to add" }
                                 }
                             }
-                            for (idx, item) in deck_ui.iter().enumerate() {
-                                crate::ui::views::CardView {
-                                    key: "deck-{item.0.id}",
-                                    index: idx,
-                                    card: item.0.clone(),
-                                    selected: focus_value == FocusZone::Deck && selected_collection == idx,
-                                    dragging: item.1,
-                                    drag_style: item.2.clone(),
-                                    primary_icon: "↑",
-                                    on_select: move |idx| { focus.set(FocusZone::Deck); sel_collection.set(idx); },
-                                    on_primary: move |idx| {
+                            for (idx, card) in view_collection.iter().enumerate() {
+                                if drag_value
+                                    .as_ref()
+                                    .map(|d| d.moved && d.card.id == card.id)
+                                    .unwrap_or(false)
+                                {
+                                    div { key: "slot-{card.id}", class: "card-slot", style: "width: var(--card-w); height: var(--card-h);" }
+                                } else {
+                                    crate::ui::views::CardView {
+                                        key: "card-{card.id}",
+                                        index: idx,
+                                        card: card.clone(),
+                                        selected: focus_value == FocusZone::Deck && selected_collection == idx,
+                                        dragging: false,
+                                        drag_style: String::new(),
+                                        primary_icon: "↑",
+                                        on_select: move |idx| { focus.set(FocusZone::Deck); sel_collection.set(idx); },
+                                        on_primary: move |idx| {
                                             let before = {
                                                 let st = engine.read();
                                                 let ids = anim::visible_card_ids(&st.state.collection, &st.state.hand);
@@ -1369,27 +1357,27 @@ pub fn App() -> Element {
                                             let new_coll_len = eng.state.collection.len();
                                             sel_collection.set(if new_coll_len == 0 { 0 } else { idx.min(new_coll_len - 1) });
                                             anim::play_flip(before, 280.0);
-                                    },
-                                    on_move_left: move |idx| {
+                                        },
+                                        on_move_left: move |idx| {
                                             if idx == 0 { return; }
                                             let mut eng = engine.write();
                                             let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: idx, to: idx - 1 });
                                             focus.set(FocusZone::Deck);
                                             sel_collection.set(idx - 1);
-                                    },
-                                    on_move_right: move |idx| {
+                                        },
+                                        on_move_right: move |idx| {
                                             let len = engine.read().state.collection.len();
                                             if idx + 1 >= len { return; }
                                             let mut eng = engine.write();
                                             let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: idx, to: idx + 1 });
                                             focus.set(FocusZone::Deck);
                                             sel_collection.set(idx + 1);
-                                    },
-                                    on_docs: move |id| {
+                                        },
+                                        on_docs: move |id| {
                                             kardinomicon_target.set(Some(id));
                                             kardinomicon_open.set(true);
-                                    },
-                                    on_ptr_down: move |pd: crate::ui::views::PtrDown| {
+                                        },
+                                        on_ptr_down: move |pd: crate::ui::views::PtrDown| {
                                             if let Some(card) = engine.read().state.collection.get(pd.index).cloned() {
                                                 drag.set(Some(PtrDrag {
                                                     zone: FocusZone::Deck,
@@ -1406,7 +1394,8 @@ pub fn App() -> Element {
                                             }
                                             focus.set(FocusZone::Deck);
                                             sel_collection.set(pd.index);
-                                    },
+                                        },
+                                    }
                                 }
                             }
                         }
@@ -1425,6 +1414,31 @@ pub fn App() -> Element {
             }
 
             // Pointer-drag uses the real card element (no overlay).
+            if let Some(d) = drag_value.as_ref() {
+                if d.moved {
+                    div { class: "drag-layer",
+                        crate::ui::views::CardView {
+                            key: "card-{d.card.id}",
+                            index: d.index,
+                            card: d.card.clone(),
+                            selected: false,
+                            dragging: true,
+                            drag_style: format!(
+                                "position: fixed; left: {}px; top: {}px;",
+                                d.client_x - d.off_x,
+                                d.client_y - d.off_y
+                            ),
+                            primary_icon: " ",
+                            on_select: move |_| {},
+                            on_primary: move |_| {},
+                            on_move_left: move |_| {},
+                            on_move_right: move |_| {},
+                            on_docs: move |_| {},
+                            on_ptr_down: move |_| {},
+                        }
+                    }
+                }
+            }
 
             // Animated playback overlay.
             if pb_active() {
