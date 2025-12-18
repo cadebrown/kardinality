@@ -1,6 +1,6 @@
+use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use thiserror::Error;
 
@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use crate::kardlang::{effective_len, parse_program};
 use crate::vm::{Effect, Limits, Machine, VmContext, VmError};
 
-use crate::game::{cards, CardInstance, GameState, Phase, TraceEvent};
+use crate::game::{CardInstance, GameState, Phase, TraceEvent, cards};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -37,7 +37,11 @@ pub enum GameError {
     UnknownCardDef(String),
 
     #[error("card script cost {cost} exceeds budget {budget}: {name}")]
-    CardOverBudget { name: String, cost: usize, budget: usize },
+    CardOverBudget {
+        name: String,
+        cost: usize,
+        budget: usize,
+    },
 
     #[error("cannot draw a hand: deck and pile are empty")]
     NoCards,
@@ -76,7 +80,12 @@ impl Engine {
     pub fn with_deck(seed: u64, mut deck: Vec<CardInstance>, limits: Limits) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         deck.shuffle(&mut rng);
-        let next_id = deck.iter().map(|c| c.id).max().unwrap_or(0).saturating_add(1);
+        let next_id = deck
+            .iter()
+            .map(|c| c.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
         Self {
             state: GameState::new(deck, limits),
             rng,
@@ -85,9 +94,9 @@ impl Engine {
     }
 
     pub fn dispatch(&mut self, action: Action) -> Result<(), GameError> {
-        self.state
-            .trace
-            .push(TraceEvent::Action { action: format!("{action:?}") });
+        self.state.trace.push(TraceEvent::Action {
+            action: format!("{action:?}"),
+        });
 
         match action {
             Action::NewRun { seed } => {
@@ -220,9 +229,7 @@ impl Engine {
                 let effects = vm.eval_call(call, &ctx)?;
                 for effect in effects {
                     self.apply_effect_for_hand(&effect, &mut post_queue);
-                    self.state
-                        .trace
-                        .push(TraceEvent::EffectApplied { effect });
+                    self.state.trace.push(TraceEvent::EffectApplied { effect });
                 }
             }
 
@@ -289,9 +296,9 @@ impl Engine {
                 }
 
                 let Some(last) = self.state.history.last() else {
-                    self.state
-                        .trace
-                        .push(TraceEvent::Info("clone/again: no last played card".to_string()));
+                    self.state.trace.push(TraceEvent::Info(
+                        "clone/again: no last played card".to_string(),
+                    ));
                     return;
                 };
 
@@ -322,7 +329,12 @@ impl Engine {
                     .pile
                     .iter_mut()
                     .find(|c| c.id == last.card_id)
-                    .or_else(|| self.state.collection.iter_mut().find(|c| c.id == last.card_id));
+                    .or_else(|| {
+                        self.state
+                            .collection
+                            .iter_mut()
+                            .find(|c| c.id == last.card_id)
+                    });
                 let Some(target) = target else {
                     self.state.trace.push(TraceEvent::Info(
                         "mutate: last played card not in pile/deck".to_string(),
@@ -488,5 +500,3 @@ mod tests {
         }
     }
 }
-
-

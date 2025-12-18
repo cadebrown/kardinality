@@ -27,5 +27,3 @@ pub fn PileWidget(count: usize, recent: Vec<String>) -> Element {
         }
     }
 }
-
-

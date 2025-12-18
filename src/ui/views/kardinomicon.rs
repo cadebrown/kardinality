@@ -77,7 +77,7 @@ pub fn KardinomiconModal(
 
                         if tab_value == KTab::Overview {
                             h2 { class: "hud-title", "What is this?" }
-                            div { class: "kdoc",
+                            div { class: "kdoc selectable",
                                 "Cards are little programs. You assemble a Hand (top), then hit "
                                 strong { "Play Hand" }
                                 " to execute them in order."
@@ -101,7 +101,7 @@ pub fn KardinomiconModal(
                             }
                         } else if tab_value == KTab::Functions {
                             h2 { class: "hud-title", "Built-in functions" }
-                            div { class: "kdoc",
+                            div { class: "kdoc selectable",
                                 strong { "Economy / score" } br {}
                                 code { "score(n)" } " → score += n" br {}
                                 code { "bank(n)" } " → bankroll += n" br {}
@@ -121,7 +121,7 @@ pub fn KardinomiconModal(
                             }
                         } else if tab_value == KTab::Examples {
                             h2 { class: "hud-title", "Example combos" }
-                            div { class: "kdoc",
+                            div { class: "kdoc selectable",
                                 strong { "Build then score" } br {}
                                 code { "draw(5)" } " → expand options" br {}
                                 code { "tri(len_deck); score(acc)" } " → score based on deck size" br {}
@@ -134,14 +134,14 @@ pub fn KardinomiconModal(
                             }
                         } else {
                             h2 { class: "hud-title", "Language reference" }
-                            div { class: "kdoc",
+                            div { class: "kdoc selectable",
                                 "Numbers are unary (" code { "111" } " = 3) or digit shorthand (" code { "4" } " = 4 but costs 4)."
                                 br {}
                                 "Expressions support " code { "+" } " and " code { "*" } " with parentheses."
                                 br {}
                                 "Registers: " code { "len_deck" } ", " code { "len_hand" } ", " code { "lvl" } ", and writable " code { "acc" } "."
                             }
-                            pre { class: "kcard-doc", "{kardinality::kardlang::GRAMMAR.trim()}" }
+                            pre { class: "kcard-doc selectable", "{kardinality::kardlang::GRAMMAR.trim()}" }
                         }
                     }
                 }
@@ -152,7 +152,11 @@ pub fn KardinomiconModal(
 
 #[component]
 fn KardinomiconCard(card: kardinality::game::cards::CardDef, highlight: bool) -> Element {
-    let class = if highlight { "kcard highlight" } else { "kcard" };
+    let class = if highlight {
+        "kcard highlight"
+    } else {
+        "kcard"
+    };
     rsx! {
         div { class: "{class}",
             div { class: "kcard-head",
@@ -161,11 +165,9 @@ fn KardinomiconCard(card: kardinality::game::cards::CardDef, highlight: bool) ->
                     div { class: "kcard-name", "{card.name}" }
                     div { class: "kcard-id", "{card.id}" }
                 }
-                div { class: "kcard-script", "{card.script}" }
+                div { class: "kcard-script selectable", "{card.script}" }
             }
-            pre { class: "kcard-doc", "{card.doc.trim()}" }
+            pre { class: "kcard-doc selectable", "{card.doc.trim()}" }
         }
     }
 }
-
-

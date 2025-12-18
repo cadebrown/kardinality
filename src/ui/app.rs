@@ -1,11 +1,13 @@
 use dioxus::prelude::*;
 
+use crate::ui::anim;
 use crate::ui::state::UiSettings;
 use crate::ui::theme;
-use crate::ui::views::{DeckWidget, KardinomiconModal, PileWidget, RegistersBody, Sidebar, SidebarTab};
-use crate::ui::anim;
-use std::rc::Rc;
+use crate::ui::views::{
+    DeckWidget, KardinomiconModal, PileWidget, RegistersBody, Sidebar, SidebarTab,
+};
 use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 struct FxCard {
@@ -149,6 +151,15 @@ struct PtrDrag {
     moved: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DragHover {
+    zone: FocusZone,
+    /// Insertion boundary index (0..=len) for the target zone.
+    insert_index: Option<usize>,
+    /// Swap target card id when hovering the "swap" zone on a card.
+    swap_card_id: Option<u64>,
+}
+
 #[component]
 pub fn App() -> Element {
     let mut engine = use_signal(|| kardinality::Engine::new(0));
@@ -163,6 +174,7 @@ pub fn App() -> Element {
     let mut sel_collection = use_signal(|| 0usize);
     let mut sel_hand = use_signal(|| 0usize);
     let mut drag = use_signal(|| None::<PtrDrag>);
+    let mut drag_hover = use_signal(|| None::<DragHover>);
     let mut sidebar_index = use_signal(|| 0usize);
 
     // Playback / animated execution state (UI-only).
@@ -178,7 +190,8 @@ pub fn App() -> Element {
     let pb_len_pile = use_signal(|| 0i64);
     let pb_pile_recent = use_signal(|| Vec::<String>::new());
     let pb_deck_shake = use_signal(|| false);
-    let pb_call = use_signal(|| None::<(f64, f64, String)>); // x,y,text
+    // Playback tooltip near the executing card: x,y,text,class
+    let pb_step = use_signal(|| None::<(f64, f64, String, &'static str)>);
     let pb_view_hand = use_signal(|| Vec::<kardinality::game::CardInstance>::new());
     let pb_view_deck = use_signal(|| Vec::<kardinality::game::CardInstance>::new());
 
@@ -197,12 +210,31 @@ pub fn App() -> Element {
     let _dragging_id = drag_value.as_ref().map(|d| d.card.id);
 
     let display_score = if pb_active() { pb_score() } else { state.score };
-    let display_bank = if pb_active() { pb_bank() } else { state.bankroll };
-    let display_collection_count = if pb_active() { pb_len_deck().max(0) as usize } else { collection_count };
-    let display_hand_count = if pb_active() { pb_view_hand().len() } else { hand_count };
-    let display_source_count = if pb_active() { pb_len_source().max(0) as usize } else { deck_count };
-    let display_pile_count =
-        if pb_active() { pb_len_pile().max(0) as usize } else { state.pile.len() };
+    let display_bank = if pb_active() {
+        pb_bank()
+    } else {
+        state.bankroll
+    };
+    let display_collection_count = if pb_active() {
+        pb_len_deck().max(0) as usize
+    } else {
+        collection_count
+    };
+    let display_hand_count = if pb_active() {
+        pb_view_hand().len()
+    } else {
+        hand_count
+    };
+    let display_source_count = if pb_active() {
+        pb_len_source().max(0) as usize
+    } else {
+        deck_count
+    };
+    let display_pile_count = if pb_active() {
+        pb_len_pile().max(0) as usize
+    } else {
+        state.pile.len()
+    };
     let display_pile_recent = if pb_active() {
         pb_pile_recent()
     } else {
@@ -240,7 +272,7 @@ pub fn App() -> Element {
         let pb_len_pile = pb_len_pile.clone();
         let pb_pile_recent = pb_pile_recent.clone();
         let pb_deck_shake = pb_deck_shake.clone();
-        let pb_call = pb_call.clone();
+        let pb_step = pb_step.clone();
         let pb_view_hand = pb_view_hand.clone();
         let pb_view_deck = pb_view_deck.clone();
 
@@ -259,7 +291,7 @@ pub fn App() -> Element {
             let mut pb_len_pile = pb_len_pile.clone();
             let mut pb_pile_recent = pb_pile_recent.clone();
             let mut pb_deck_shake = pb_deck_shake.clone();
-            let mut pb_call = pb_call.clone();
+            let mut pb_step = pb_step.clone();
             let mut pb_view_hand = pb_view_hand.clone();
             let mut pb_view_deck = pb_view_deck.clone();
 
@@ -268,7 +300,15 @@ pub fn App() -> Element {
             }
 
             // Snapshot pre-state (and drop the borrow before we mutate the engine).
-            let (pre_hand, pre_score, pre_bank, pre_len_deck, pre_len_source, pre_len_pile, pre_trace_len) = {
+            let (
+                pre_hand,
+                pre_score,
+                pre_bank,
+                pre_len_deck,
+                pre_len_source,
+                pre_len_pile,
+                pre_trace_len,
+            ) = {
                 let pre = engine.read();
                 (
                     pre.state.hand.clone(),
@@ -321,7 +361,7 @@ pub fn App() -> Element {
             pb_bumps.set(Vec::new());
             pb_projs.set(Vec::new());
             pb_bursts.set(Vec::new());
-            pb_call.set(None);
+            pb_step.set(None);
             pb_deck_shake.set(false);
             pb_cards.set(overlay);
             pb_active.set(true);
@@ -331,7 +371,9 @@ pub fn App() -> Element {
             {
                 let mut eng = engine.write();
                 if let Err(e) = eng.dispatch(kardinality::Action::PlayHand) {
-                    eng.state.trace.push(kardinality::TraceEvent::Error(e.to_string()));
+                    eng.state
+                        .trace
+                        .push(kardinality::TraceEvent::Error(e.to_string()));
                 }
             }
 
@@ -358,7 +400,7 @@ pub fn App() -> Element {
             let pb_pile_recent2 = pb_pile_recent.clone();
             let pb_active2 = pb_active.clone();
             let pb_deck_shake2 = pb_deck_shake.clone();
-            let pb_call2 = pb_call.clone();
+            let pb_step2 = pb_step.clone();
             let pb_view_hand2 = pb_view_hand.clone();
             let pb_view_deck2 = pb_view_deck.clone();
 
@@ -375,7 +417,7 @@ pub fn App() -> Element {
                 let mut pb_pile_recent2 = pb_pile_recent2;
                 let mut pb_active2 = pb_active2;
                 let mut pb_deck_shake2 = pb_deck_shake2;
-                let mut pb_call2 = pb_call2;
+                let mut pb_step2 = pb_step2;
                 let mut pb_view_hand2 = pb_view_hand2;
                 let mut pb_view_deck2 = pb_view_deck2;
 
@@ -432,8 +474,14 @@ pub fn App() -> Element {
 
                 // Helper: projectile from the executing card to a UI target, with sparks on impact.
                 let mut next_proj_id: u64 = 1;
-                let mut launch_proj = |from_x: f64, from_y: f64, to_testid: &str, text: String, class: &'static str| {
-                    let Some(r) = anim::rect_for_testid(to_testid) else { return };
+                let mut launch_proj = |from_x: f64,
+                                       from_y: f64,
+                                       to_testid: &str,
+                                       text: String,
+                                       class: &'static str| {
+                    let Some(r) = anim::rect_for_testid(to_testid) else {
+                        return;
+                    };
                     let to_x = r.left + r.width * 0.50;
                     let to_y = r.top + r.height * 0.50;
                     let proj = FxProj {
@@ -477,7 +525,9 @@ pub fn App() -> Element {
                     match evt {
                         kardinality::TraceEvent::CardStart { .. } => {
                             // Pop next overlay card from the queue and focus it in place.
-                            let Some(id) = queue.pop_front() else { continue };
+                            let Some(id) = queue.pop_front() else {
+                                continue;
+                            };
                             current = Some(id);
 
                             // Hide the real card so layout stays stable but only the overlay is visible.
@@ -489,8 +539,28 @@ pub fn App() -> Element {
                                 card.ty = -18.0;
                                 card.scale = 1.06;
                                 card.executing = true;
+                                // Dim other overlay cards so the executing one pops.
+                                for other in cards.iter_mut() {
+                                    if other.id != id {
+                                        other.opacity = 0.40;
+                                    } else {
+                                        other.opacity = 1.0;
+                                    }
+                                }
                             }
                             drop(cards);
+
+                            // Tooltip near the executing card.
+                            if let Some(card) = pb_cards2.read().iter().find(|c| c.id == id) {
+                                let name = pre_hand
+                                    .iter()
+                                    .find(|c| c.id == id)
+                                    .and_then(|c| c.def().map(|d| d.name.to_string()))
+                                    .unwrap_or_else(|| "Card".to_string());
+                                let x = card.left + card.width * 0.5 + card.tx;
+                                let y = card.top + card.height * 0.12 + card.ty;
+                                pb_step2.set(Some((x, y, format!("▶ {name}"), "card")));
+                            }
                             anim::sleep_ms(180).await;
                         }
                         kardinality::TraceEvent::Call { name, args } => {
@@ -500,9 +570,14 @@ pub fn App() -> Element {
                                 if let Some(c) = cards.iter().find(|c| c.id == id) {
                                     let x = c.left + c.width * 0.5 + c.tx;
                                     let y = c.top + c.height * 0.15 + c.ty;
-                                    pb_call2.set(Some((x, y, format!("{name}({})", args.join(", ")))));
+                                    pb_step2.set(Some((
+                                        x,
+                                        y,
+                                        format!("ƒ {name}({})", args.join(", ")),
+                                        "call",
+                                    )));
                                     anim::sleep_ms(260).await;
-                                    pb_call2.set(None);
+                                    pb_step2.set(None);
                                 }
                             }
                         }
@@ -510,10 +585,7 @@ pub fn App() -> Element {
                             let (from_x, from_y) = if let Some(id) = current {
                                 let cards = pb_cards2.read();
                                 if let Some(c) = cards.iter().find(|c| c.id == id) {
-                                    (
-                                        c.left + c.width * 0.5 + c.tx,
-                                        c.top + c.height * 0.5 + c.ty,
-                                    )
+                                    (c.left + c.width * 0.5 + c.tx, c.top + c.height * 0.5 + c.ty)
                                 } else {
                                     (pile_x, pile_y)
                                 }
@@ -523,26 +595,74 @@ pub fn App() -> Element {
                             match effect {
                                 kardinality::vm::Effect::AddScore(n) => {
                                     let cls = if n >= 0 { "pos" } else { "neg" };
-                                    launch_proj(from_x, from_y, "score-value", format!("{:+}", n), cls);
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("score {:+}", n),
+                                        cls,
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "score-value",
+                                        format!("{:+}", n),
+                                        cls,
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("score-value", format!("{:+}", n), cls);
                                     *pb_score2.write() += n;
                                 }
                                 kardinality::vm::Effect::AddBankroll(n) => {
                                     let cls = if n >= 0 { "pos" } else { "neg" };
-                                    launch_proj(from_x, from_y, "money-value", format!("${:+}", n), cls);
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("money {:+}", n),
+                                        cls,
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "money-value",
+                                        format!("${:+}", n),
+                                        cls,
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("money-value", format!("${:+}", n), cls);
                                     *pb_bank2.write() += n;
                                 }
                                 kardinality::vm::Effect::MulBankroll(n) => {
-                                    launch_proj(from_x, from_y, "money-value", format!("×{n}"), "mul");
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("money ×{n}"),
+                                        "mul",
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "money-value",
+                                        format!("×{n}"),
+                                        "mul",
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("money-value", format!("×{n}"), "mul");
                                     *pb_bank2.write() *= n;
                                 }
                                 kardinality::vm::Effect::Draw(n) => {
-                                    launch_proj(from_x, from_y, "deck-count", format!("draw(+{n})"), "info");
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("draw +{n}"),
+                                        "info",
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "deck-count",
+                                        format!("draw(+{n})"),
+                                        "info",
+                                    );
                                     pb_deck_shake2.set(true);
                                     let mut pb_deck_shake3 = pb_deck_shake2.clone();
                                     spawn(async move {
@@ -553,7 +673,9 @@ pub fn App() -> Element {
                                     let want = n.clamp(0, 25);
                                     let mut added: i64 = 0;
                                     for _ in 0..want {
-                                        let Some(c) = drawn_queue.pop_front() else { break };
+                                        let Some(c) = drawn_queue.pop_front() else {
+                                            break;
+                                        };
                                         let id = c.id;
                                         pb_view_deck2.write().push(c);
                                         added += 1;
@@ -561,7 +683,11 @@ pub fn App() -> Element {
                                         let card_dom_id = format!("card-{id}");
                                         spawn(async move {
                                             anim::sleep_ms(32).await;
-                                            anim::add_temp_class_for_id(&card_dom_id, "pop-in", 650);
+                                            anim::add_temp_class_for_id(
+                                                &card_dom_id,
+                                                "pop-in",
+                                                650,
+                                            );
                                         });
                                     }
                                     anim::sleep_ms(520).await;
@@ -574,26 +700,76 @@ pub fn App() -> Element {
                                     }
                                 }
                                 kardinality::vm::Effect::SetAcc(v) => {
-                                    launch_proj(from_x, from_y, "deck-zone", format!("acc={v}"), "info");
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("acc={v}"),
+                                        "info",
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "deck-zone",
+                                        format!("acc={v}"),
+                                        "info",
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("deck-zone", format!("acc={v}"), "info");
                                 }
                                 kardinality::vm::Effect::Clone(n) => {
-                                    launch_proj(from_x, from_y, "deck-count", format!("clone({n})"), "info");
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("clone({n})"),
+                                        "info",
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "deck-count",
+                                        format!("clone({n})"),
+                                        "info",
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("deck-count", format!("+{n}"), "pos");
                                 }
                                 kardinality::vm::Effect::Again(n) => {
-                                    launch_proj(from_x, from_y, "deck-zone", format!("again({n})"), "info");
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        format!("again({n})"),
+                                        "info",
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "deck-zone",
+                                        format!("again({n})"),
+                                        "info",
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("deck-zone", format!("again({n})"), "info");
                                 }
                                 kardinality::vm::Effect::Mutate => {
-                                    launch_proj(from_x, from_y, "deck-zone", "mutate()".to_string(), "info");
+                                    pb_step2.set(Some((
+                                        from_x,
+                                        from_y - 44.0,
+                                        "mutate()".to_string(),
+                                        "info",
+                                    )));
+                                    launch_proj(
+                                        from_x,
+                                        from_y,
+                                        "deck-zone",
+                                        "mutate()".to_string(),
+                                        "info",
+                                    );
                                     anim::sleep_ms(620).await;
                                     push_bump("deck-zone", "mutate()".to_string(), "info");
                                 }
                             }
+                            // Next step will overwrite this; clear if we stay idle.
+                            pb_step2.set(None);
                         }
                         kardinality::TraceEvent::CardEnd { .. } => {
                             let Some(id) = current.take() else { continue };
@@ -645,7 +821,7 @@ pub fn App() -> Element {
                 }
 
                 // End playback.
-                pb_call2.set(None);
+                pb_step2.set(None);
                 pb_deck_shake2.set(false);
                 // Fade overlays out, then end playback.
                 {
@@ -718,7 +894,10 @@ pub fn App() -> Element {
                 }
             },
             onpointermove: move |evt: PointerEvent| {
-                let Some(mut d) = drag() else { return };
+                let Some(mut d) = drag() else {
+                    drag_hover.set(None);
+                    return;
+                };
                 if !d.moved {
                     // Don't start a drag until the pointer moves a bit.
                     let p = evt.data().client_coordinates();
@@ -733,7 +912,58 @@ pub fn App() -> Element {
                 let p = evt.data().client_coordinates();
                 d.client_x = p.x;
                 d.client_y = p.y;
+                let moved = d.moved;
                 drag.set(Some(d));
+
+                // Update hover info for drop slivers / swap targets.
+                if moved {
+                    let hit = anim::hit_test(p.x, p.y);
+                    let st = engine.read();
+
+                    let mut next: Option<DragHover> = None;
+                    if let (Some(z), Some(idx)) = (hit.zone, hit.drop_index) {
+                        let zone = match z {
+                            anim::HitZone::Hand => FocusZone::Hand,
+                            anim::HitZone::Deck => FocusZone::Deck,
+                        };
+                        next = Some(DragHover {
+                            zone,
+                            insert_index: Some(idx),
+                            swap_card_id: None,
+                        });
+                    } else if let Some(id) = hit.card_id {
+                        let mut zone: Option<FocusZone> = None;
+                        let mut ti: Option<usize> = None;
+                        if let Some(i) = st.state.hand.iter().position(|c| c.id == id) {
+                            zone = Some(FocusZone::Hand);
+                            ti = Some(i);
+                        } else if let Some(i) = st.state.collection.iter().position(|c| c.id == id) {
+                            zone = Some(FocusZone::Deck);
+                            ti = Some(i);
+                        }
+                        if let (Some(zone), Some(ti)) = (zone, ti) {
+                            let rel = hit.rel_x.unwrap_or(0.5);
+                            let hint = if rel < 0.28 { 0 } else if rel > 0.72 { 2 } else { 1 }; // 0 before,1 swap,2 after
+                            next = if hint == 1 {
+                                Some(DragHover {
+                                    zone,
+                                    insert_index: None,
+                                    swap_card_id: Some(id),
+                                })
+                            } else {
+                                Some(DragHover {
+                                    zone,
+                                    insert_index: Some(if hint == 0 { ti } else { ti.saturating_add(1) }),
+                                    swap_card_id: None,
+                                })
+                            };
+                        }
+                    }
+
+                    if drag_hover() != next {
+                        drag_hover.set(next);
+                    }
+                }
             },
             onpointerup: move |evt: PointerEvent| {
                 let Some(d) = drag() else { return };
@@ -746,129 +976,197 @@ pub fn App() -> Element {
 
                 evt.prevent_default();
 
+                // FLIP animation: capture positions before we mutate the lists.
+                let before = {
+                    let st = engine.read();
+                    let ids = anim::visible_card_ids(&st.state.collection, &st.state.hand);
+                    anim::capture_rects(&ids)
+                };
+
                 // Decide drop target using hit-testing (WASM) or fallbacks.
                 let p = evt.data().client_coordinates();
                 let hit = anim::hit_test(p.x, p.y);
 
-                let mut eng = engine.write();
+                let mut did_change = false;
+                {
+                    let mut eng = engine.write();
 
-                let src_zone = d.zone;
-                let src_index = d.index;
+                    let src_zone = d.zone;
+                    let src_index = d.index;
 
-                // Determine target zone/index from card_id if possible.
-                let mut target_zone: Option<FocusZone> = None;
-                let mut target_index: Option<usize> = None;
-                if let Some(id) = hit.card_id {
-                    if let Some(i) = eng.state.hand.iter().position(|c| c.id == id) {
-                        target_zone = Some(FocusZone::Hand);
-                        target_index = Some(i);
-                    } else if let Some(i) = eng.state.collection.iter().position(|c| c.id == id) {
-                        target_zone = Some(FocusZone::Deck);
-                        target_index = Some(i);
+                    // Determine target zone/index from card_id if possible.
+                    let mut target_zone: Option<FocusZone> = None;
+                    let mut target_index: Option<usize> = None;
+                    if let Some(id) = hit.card_id {
+                        if let Some(i) = eng.state.hand.iter().position(|c| c.id == id) {
+                            target_zone = Some(FocusZone::Hand);
+                            target_index = Some(i);
+                        } else if let Some(i) = eng.state.collection.iter().position(|c| c.id == id) {
+                            target_zone = Some(FocusZone::Deck);
+                            target_index = Some(i);
+                        }
+                    } else if let Some(z) = hit.zone {
+                        target_zone = Some(match z {
+                            anim::HitZone::Hand => FocusZone::Hand,
+                            anim::HitZone::Deck => FocusZone::Deck,
+                        });
                     }
-                } else if let Some(z) = hit.zone {
-                    target_zone = Some(match z {
-                        anim::HitZone::Hand => FocusZone::Hand,
-                        anim::HitZone::Deck => FocusZone::Deck,
-                    });
-                }
 
-                let rel = hit.rel_x.unwrap_or(0.5);
-                let hint = if rel < 0.28 { 0 } else if rel > 0.72 { 2 } else { 1 }; // 0 before,1 swap,2 after
+                    // Resolve drop mode:
+                    // * If we hit a drop sliver: insert at its boundary index.
+                    // * Else if we hit a card: before/after insert, or swap if centered.
+                    let mut swap: bool = false;
+                    let mut insert_at: Option<usize> = hit.drop_index;
+                    if insert_at.is_none() {
+                        if let Some(ti) = target_index {
+                            let rel = hit.rel_x.unwrap_or(0.5);
+                            let hint = if rel < 0.28 { 0 } else if rel > 0.72 { 2 } else { 1 }; // 0 before,1 swap,2 after
+                            if hint == 1 {
+                                swap = true;
+                            } else {
+                                insert_at = Some(if hint == 0 { ti } else { ti.saturating_add(1) });
+                            }
+                        }
+                    }
 
-                match (src_zone, target_zone, target_index) {
-                    // Hand -> Hand
-                    (FocusZone::Hand, Some(FocusZone::Hand), Some(ti)) => {
-                        if hint == 1 {
+                    match (src_zone, target_zone, target_index, swap, insert_at) {
+                        // Hand -> Hand
+                        (FocusZone::Hand, Some(FocusZone::Hand), Some(ti), true, _) => {
+                            did_change = true;
                             let _ = eng.dispatch(kardinality::Action::SwapHand { a: src_index, b: ti });
                             focus.set(FocusZone::Hand);
                             sel_hand.set(ti);
-                        } else {
-                            let mut to = ti;
-                            if hint == 2 { to = to.saturating_add(1); }
-                            if src_index < to { to = to.saturating_sub(1); }
-                            let len = eng.state.hand.len();
-                            let to = to.min(len.saturating_sub(1));
+                        }
+                        (FocusZone::Hand, Some(FocusZone::Hand), _, false, Some(ins)) => {
+                            did_change = true;
+                            let mut to = ins;
+                            if src_index < to {
+                                to = to.saturating_sub(1);
+                            }
                             let _ = eng.dispatch(kardinality::Action::ReorderHand { from: src_index, to });
                             focus.set(FocusZone::Hand);
-                            sel_hand.set(to);
+                            sel_hand.set(to.min(eng.state.hand.len().saturating_sub(1)));
                         }
-                    }
-                    // Deck -> Deck
-                    (FocusZone::Deck, Some(FocusZone::Deck), Some(ti)) => {
-                        if hint == 1 {
+                        // Deck -> Deck
+                        (FocusZone::Deck, Some(FocusZone::Deck), Some(ti), true, _) => {
+                            did_change = true;
                             let _ = eng.dispatch(kardinality::Action::SwapCollection { a: src_index, b: ti });
                             focus.set(FocusZone::Deck);
                             sel_collection.set(ti);
-                        } else {
-                            let mut to = ti;
-                            if hint == 2 { to = to.saturating_add(1); }
-                            if src_index < to { to = to.saturating_sub(1); }
-                            let len = eng.state.collection.len();
-                            let to = to.min(len.saturating_sub(1));
+                        }
+                        (FocusZone::Deck, Some(FocusZone::Deck), _, false, Some(ins)) => {
+                            did_change = true;
+                            let mut to = ins;
+                            if src_index < to {
+                                to = to.saturating_sub(1);
+                            }
                             let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: src_index, to });
                             focus.set(FocusZone::Deck);
-                            sel_collection.set(to);
+                            sel_collection.set(to.min(eng.state.collection.len().saturating_sub(1)));
                         }
-                    }
-                    // Deck -> Hand
-                    (FocusZone::Deck, Some(FocusZone::Hand), maybe_ti) => {
-                        if let Err(e) = eng.dispatch(kardinality::Action::MoveCollectionToHand { index: src_index }) {
-                            eng.state.trace.push(kardinality::TraceEvent::Error(e.to_string()));
+                        // Deck -> Hand (supports swap-on-drop when dropping onto a card)
+                        (FocusZone::Deck, Some(FocusZone::Hand), Some(ti), true, _) => {
+                            did_change = true;
+                                // Swap: target hand card goes to deck at src_index, dragged deck card goes to hand at ti.
+                                let _ = eng.dispatch(kardinality::Action::MoveHandToCollection { index: ti });
+                                let _ = eng.dispatch(kardinality::Action::MoveCollectionToHand { index: src_index });
+
+                                // Insert moved deck card into hand at ti.
+                                let from_hand = eng.state.hand.len().saturating_sub(1);
+                                let to_hand = ti.min(from_hand);
+                                let _ = eng.dispatch(kardinality::Action::ReorderHand { from: from_hand, to: to_hand });
+
+                                // Insert moved hand card into deck at src_index (clamp for last-index swaps).
+                                let from_deck = eng.state.collection.len().saturating_sub(1);
+                                let to_deck = src_index.min(eng.state.collection.len().saturating_sub(1));
+                                let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: from_deck, to: to_deck });
+
+                                focus.set(FocusZone::Hand);
+                                sel_hand.set(to_hand);
                         }
-                        let from = eng.state.hand.len().saturating_sub(1);
-                        if let Some(ti) = maybe_ti {
-                            let mut to = ti.min(from);
-                            if hint == 2 { to = (ti.saturating_add(1)).min(from); }
+                        (FocusZone::Deck, Some(FocusZone::Hand), _, false, Some(ins)) => {
+                            did_change = true;
+                            let _ = eng.dispatch(kardinality::Action::MoveCollectionToHand { index: src_index });
+                            let from = eng.state.hand.len().saturating_sub(1);
+                            let to = ins.min(from);
                             let _ = eng.dispatch(kardinality::Action::ReorderHand { from, to });
                             focus.set(FocusZone::Hand);
                             sel_hand.set(to);
-                        } else {
+                        }
+                        (FocusZone::Deck, Some(FocusZone::Hand), None, _, None) => {
+                            did_change = true;
+                            let _ = eng.dispatch(kardinality::Action::MoveCollectionToHand { index: src_index });
+                            let from = eng.state.hand.len().saturating_sub(1);
                             focus.set(FocusZone::Hand);
                             sel_hand.set(from);
                         }
-                    }
-                    // Hand -> Deck
-                    (FocusZone::Hand, Some(FocusZone::Deck), maybe_ti) => {
-                        if let Err(e) = eng.dispatch(kardinality::Action::MoveHandToCollection { index: src_index }) {
-                            eng.state.trace.push(kardinality::TraceEvent::Error(e.to_string()));
+                        // Hand -> Deck (supports swap-on-drop when dropping onto a card)
+                        (FocusZone::Hand, Some(FocusZone::Deck), Some(ti), true, _) => {
+                            did_change = true;
+                                // Swap: target deck card goes to hand at src_index, dragged hand card goes to deck at ti.
+                                let _ = eng.dispatch(kardinality::Action::MoveCollectionToHand { index: ti });
+                                let _ = eng.dispatch(kardinality::Action::MoveHandToCollection { index: src_index });
+
+                                // Insert moved deck card into hand at src_index.
+                                let from_hand = eng.state.hand.len().saturating_sub(1);
+                                let to_hand = src_index.min(from_hand);
+                                let _ = eng.dispatch(kardinality::Action::ReorderHand { from: from_hand, to: to_hand });
+
+                                // Insert moved hand card into deck at ti (clamp for last-index swaps).
+                                let from_deck = eng.state.collection.len().saturating_sub(1);
+                                let to_deck = ti.min(eng.state.collection.len().saturating_sub(1));
+                                let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: from_deck, to: to_deck });
+
+                                focus.set(FocusZone::Deck);
+                                sel_collection.set(to_deck);
                         }
-                        let from = eng.state.collection.len().saturating_sub(1);
-                        if let Some(ti) = maybe_ti {
-                            let mut to = ti.min(from);
-                            if hint == 2 { to = (ti.saturating_add(1)).min(from); }
+                        (FocusZone::Hand, Some(FocusZone::Deck), _, false, Some(ins)) => {
+                            did_change = true;
+                            let _ = eng.dispatch(kardinality::Action::MoveHandToCollection { index: src_index });
+                            let from = eng.state.collection.len().saturating_sub(1);
+                            let to = ins.min(from);
                             let _ = eng.dispatch(kardinality::Action::ReorderCollection { from, to });
                             focus.set(FocusZone::Deck);
                             sel_collection.set(to);
-                        } else {
+                        }
+                        (FocusZone::Hand, Some(FocusZone::Deck), None, _, None) => {
+                            did_change = true;
+                            let _ = eng.dispatch(kardinality::Action::MoveHandToCollection { index: src_index });
+                            let from = eng.state.collection.len().saturating_sub(1);
                             focus.set(FocusZone::Deck);
                             sel_collection.set(from);
                         }
-                    }
-                    // Drop on whitespace: append/move-to-end within same zone
-                    (FocusZone::Hand, Some(FocusZone::Hand), None) => {
-                        let len = eng.state.hand.len();
-                        if len > 0 {
-                            let to = len - 1;
-                            let _ = eng.dispatch(kardinality::Action::ReorderHand { from: src_index, to });
-                            focus.set(FocusZone::Hand);
-                            sel_hand.set(to);
+                        // Drop on whitespace: append/move-to-end within same zone
+                        (FocusZone::Hand, Some(FocusZone::Hand), None, _, None) => {
+                            let len = eng.state.hand.len();
+                            if len > 0 {
+                                did_change = true;
+                                let to = len - 1;
+                                let _ = eng.dispatch(kardinality::Action::ReorderHand { from: src_index, to });
+                                focus.set(FocusZone::Hand);
+                                sel_hand.set(to);
+                            }
                         }
-                    }
-                    (FocusZone::Deck, Some(FocusZone::Deck), None) => {
-                        let len = eng.state.collection.len();
-                        if len > 0 {
-                            let to = len - 1;
-                            let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: src_index, to });
-                            focus.set(FocusZone::Deck);
-                            sel_collection.set(to);
+                        (FocusZone::Deck, Some(FocusZone::Deck), None, _, None) => {
+                            let len = eng.state.collection.len();
+                            if len > 0 {
+                                did_change = true;
+                                let to = len - 1;
+                                let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: src_index, to });
+                                focus.set(FocusZone::Deck);
+                                sel_collection.set(to);
+                            }
                         }
+                        // If we couldn't hit-test a zone, do nothing.
+                        _ => {}
                     }
-                    // If we couldn't hit-test a zone, do nothing.
-                    _ => {}
                 }
 
                 drag.set(None);
+                drag_hover.set(None);
+                if did_change {
+                    anim::play_flip(before, 280.0);
+                }
             },
             onkeydown: move |evt: KeyboardEvent| {
                 use dioxus::prelude::Key;
@@ -1140,53 +1438,57 @@ pub fn App() -> Element {
                             let fill_style = format!("width: {pct100:.2}%");
 
                             rsx! {
-                                div { class: "run-buttons",
-                                    button {
-                                        class: if focus_value == FocusZone::Play { "play-btn focused play-btn2" } else { "play-btn play-btn2" },
-                                        "data-testid": "play",
-                                        title: "Play the current hand (Enter)",
-                                        onclick: move |_| {
-                                            focus.set(FocusZone::Play);
-                                            (start_playback_btn)();
-                                        },
-                                        div { class: "play-head",
-                                            span { class: "play-icon", "▶" }
-                                            span { class: "play-text", "Play" }
+                                div { class: "run-top",
+                                    div { class: "run-buttons",
+                                        button {
+                                            class: if focus_value == FocusZone::Play { "play-btn focused play-btn2" } else { "play-btn play-btn2" },
+                                            "data-testid": "play",
+                                            title: "Play the current hand (Enter)",
+                                            onclick: move |_| {
+                                                focus.set(FocusZone::Play);
+                                                (start_playback_btn)();
+                                            },
+                                            div { class: "play-head",
+                                                span { class: "play-icon", "▶" }
+                                                span { class: "play-text", "Play" }
+                                            }
                                         }
-                                    }
-                                    button {
-                                        class: if focus_value == FocusZone::Shop { "play-btn focused shop-btn" } else { "play-btn shop-btn" },
-                                        "data-testid": "shop",
-                                        title: "Shop (coming soon)",
-                                        onclick: move |_| {
-                                            focus.set(FocusZone::Shop);
-                                            let mut eng = engine.write();
-                                            eng.state.trace.push(kardinality::TraceEvent::Info("Shop: coming soon".to_string()));
-                                        },
-                                        div { class: "play-head",
-                                            span { class: "play-icon", "◆" }
-                                            span { class: "play-text", "Shop" }
+                                        button {
+                                            class: if focus_value == FocusZone::Shop { "play-btn focused shop-btn" } else { "play-btn shop-btn" },
+                                            "data-testid": "shop",
+                                            title: "Shop (coming soon)",
+                                            onclick: move |_| {
+                                                focus.set(FocusZone::Shop);
+                                                let mut eng = engine.write();
+                                                eng.state.trace.push(kardinality::TraceEvent::Info("Shop: coming soon".to_string()));
+                                            },
+                                            div { class: "play-head",
+                                                span { class: "play-icon", "◆" }
+                                                span { class: "play-text", "Shop" }
+                                            }
                                         }
                                     }
                                 }
 
-                                div { class: "run-strip",
-                                    div { class: "strip-item",
-                                        span { class: "strip-k", "Level" }
-                                        span { class: "strip-v", "data-testid": "level-value", "{state.level}" }
+                                div { class: "run-bottom",
+                                    div { class: "run-strip",
+                                        div { class: "strip-item",
+                                            span { class: "strip-k", "Level" }
+                                            span { class: "strip-v", "data-testid": "level-value", "{state.level}" }
+                                        }
+                                        div { class: "strip-item",
+                                            span { class: "strip-k", "Score" }
+                                            span { class: "strip-v", "data-testid": "score-value", "{display_score}/{state.target_score}" }
+                                        }
+                                        div { class: "strip-item",
+                                            span { class: "strip-k", "Money" }
+                                            span { class: "strip-v", "data-testid": "money-value", "${display_bank}" }
+                                        }
                                     }
-                                    div { class: "strip-item",
-                                        span { class: "strip-k", "Score" }
-                                        span { class: "strip-v", "data-testid": "score-value", "{display_score}/{state.target_score}" }
-                                    }
-                                    div { class: "strip-item",
-                                        span { class: "strip-k", "Money" }
-                                        span { class: "strip-v", "data-testid": "money-value", "${display_bank}" }
-                                    }
-                                }
 
-                                div { class: "run-progress",
-                                    div { class: "run-progress-fill", style: "{fill_style}" }
+                                    div { class: "run-progress",
+                                        div { class: "run-progress-fill", style: "{fill_style}" }
+                                    }
                                 }
                             }
                         }
@@ -1228,23 +1530,54 @@ pub fn App() -> Element {
                             }
                             for (idx, card) in view_hand.iter().enumerate() {
                                 // Unparent the dragged card: render a placeholder here and the real card in `.drag-layer`.
-                                if drag_value
-                                    .as_ref()
-                                    .map(|d| d.moved && d.card.id == card.id)
-                                    .unwrap_or(false)
                                 {
-                                    div { key: "slot-{card.id}", class: "card-slot", style: "width: var(--card-w); height: var(--card-h);" }
-                                } else {
-                                    crate::ui::views::CardView {
-                                        key: "card-{card.id}",
-                                        index: idx,
-                                        card: card.clone(),
-                                        selected: focus_value == FocusZone::Hand && selected_hand == idx,
-                                        dragging: false,
-                                        drag_style: String::new(),
-                                        primary_icon: "↓",
-                                        on_select: move |idx| { focus.set(FocusZone::Hand); sel_hand.set(idx); },
-                                        on_primary: move |idx| {
+                                    let hover = drag_hover();
+                                    let insert_active = hover
+                                        .as_ref()
+                                        .is_some_and(|h| h.zone == FocusZone::Hand && h.insert_index == Some(idx));
+                                    let swap_target = hover
+                                        .as_ref()
+                                        .is_some_and(|h| h.zone == FocusZone::Hand && h.swap_card_id == Some(card.id));
+                                    let end_active = hover.as_ref().is_some_and(|h| {
+                                        h.zone == FocusZone::Hand
+                                            && h.insert_index == Some(view_hand.len())
+                                            && idx + 1 == view_hand.len()
+                                    });
+
+                                    rsx! {
+                                        div { key: "wrap-hand-{card.id}", class: if swap_target { "card-wrap swap-target" } else { "card-wrap" },
+                                            div {
+                                                class: if insert_active { "drop-slit left active" } else { "drop-slit left" },
+                                                "data-drop-zone": "hand",
+                                                "data-drop-index": "{idx}",
+                                            }
+
+                                            if idx + 1 == view_hand.len() {
+                                                div {
+                                                    class: if end_active { "drop-slit right active" } else { "drop-slit right" },
+                                                    "data-drop-zone": "hand",
+                                                    "data-drop-index": "{view_hand.len()}",
+                                                }
+                                            }
+
+                                            if drag_value
+                                                .as_ref()
+                                                .map(|d| d.moved && d.card.id == card.id)
+                                                .unwrap_or(false)
+                                            {
+                                                div { key: "slot-{card.id}", class: "card-slot", style: "width: var(--card-w); height: var(--card-h);" }
+                                            } else {
+                                                crate::ui::views::CardView {
+                                                    key: "card-{card.id}",
+                                                    index: idx,
+                                                    card: card.clone(),
+                                                    selected: selected_hand == idx,
+                                                    focused: focus_value == FocusZone::Hand,
+                                                    dragging: false,
+                                                    drag_style: String::new(),
+                                                    primary_icon: "↓",
+                                                    on_select: move |idx| { focus.set(FocusZone::Hand); sel_hand.set(idx); },
+                                                    on_primary: move |idx| {
                                         let before = {
                                             let st = engine.read();
                                             let ids = anim::visible_card_ids(&st.state.collection, &st.state.hand);
@@ -1260,27 +1593,27 @@ pub fn App() -> Element {
                                         let new_hand_len = eng.state.hand.len();
                                         sel_hand.set(if new_hand_len == 0 { 0 } else { idx.min(new_hand_len - 1) });
                                         anim::play_flip(before, 280.0);
-                                        },
-                                        on_move_left: move |idx| {
+                                                    },
+                                                    on_move_left: move |idx| {
                                         if idx == 0 { return; }
                                         let mut eng = engine.write();
                                         let _ = eng.dispatch(kardinality::Action::ReorderHand { from: idx, to: idx - 1 });
                                         focus.set(FocusZone::Hand);
                                         sel_hand.set(idx - 1);
-                                        },
-                                        on_move_right: move |idx| {
+                                                    },
+                                                    on_move_right: move |idx| {
                                         let len = engine.read().state.hand.len();
                                         if idx + 1 >= len { return; }
                                         let mut eng = engine.write();
                                         let _ = eng.dispatch(kardinality::Action::ReorderHand { from: idx, to: idx + 1 });
                                         focus.set(FocusZone::Hand);
                                         sel_hand.set(idx + 1);
-                                        },
-                                        on_docs: move |id| {
+                                                    },
+                                                    on_docs: move |id| {
                                         kardinomicon_target.set(Some(id));
                                         kardinomicon_open.set(true);
-                                        },
-                                        on_ptr_down: move |pd: crate::ui::views::PtrDown| {
+                                                    },
+                                                    on_ptr_down: move |pd: crate::ui::views::PtrDown| {
                                         if let Some(card) = engine.read().state.hand.get(pd.index).cloned() {
                                             drag.set(Some(PtrDrag {
                                                 zone: FocusZone::Hand,
@@ -1297,7 +1630,10 @@ pub fn App() -> Element {
                                         }
                                         focus.set(FocusZone::Hand);
                                         sel_hand.set(pd.index);
-                                        },
+                                                    },
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1325,23 +1661,54 @@ pub fn App() -> Element {
                                 }
                             }
                             for (idx, card) in view_collection.iter().enumerate() {
-                                if drag_value
-                                    .as_ref()
-                                    .map(|d| d.moved && d.card.id == card.id)
-                                    .unwrap_or(false)
                                 {
-                                    div { key: "slot-{card.id}", class: "card-slot", style: "width: var(--card-w); height: var(--card-h);" }
-                                } else {
-                                    crate::ui::views::CardView {
-                                        key: "card-{card.id}",
-                                        index: idx,
-                                        card: card.clone(),
-                                        selected: focus_value == FocusZone::Deck && selected_collection == idx,
-                                        dragging: false,
-                                        drag_style: String::new(),
-                                        primary_icon: "↑",
-                                        on_select: move |idx| { focus.set(FocusZone::Deck); sel_collection.set(idx); },
-                                        on_primary: move |idx| {
+                                    let hover = drag_hover();
+                                    let insert_active = hover
+                                        .as_ref()
+                                        .is_some_and(|h| h.zone == FocusZone::Deck && h.insert_index == Some(idx));
+                                    let swap_target = hover
+                                        .as_ref()
+                                        .is_some_and(|h| h.zone == FocusZone::Deck && h.swap_card_id == Some(card.id));
+                                    let end_active = hover.as_ref().is_some_and(|h| {
+                                        h.zone == FocusZone::Deck
+                                            && h.insert_index == Some(view_collection.len())
+                                            && idx + 1 == view_collection.len()
+                                    });
+
+                                    rsx! {
+                                        div { key: "wrap-deck-{card.id}", class: if swap_target { "card-wrap swap-target" } else { "card-wrap" },
+                                            div {
+                                                class: if insert_active { "drop-slit left active" } else { "drop-slit left" },
+                                                "data-drop-zone": "deck",
+                                                "data-drop-index": "{idx}",
+                                            }
+
+                                            if idx + 1 == view_collection.len() {
+                                                div {
+                                                    class: if end_active { "drop-slit right active" } else { "drop-slit right" },
+                                                    "data-drop-zone": "deck",
+                                                    "data-drop-index": "{view_collection.len()}",
+                                                }
+                                            }
+
+                                            if drag_value
+                                                .as_ref()
+                                                .map(|d| d.moved && d.card.id == card.id)
+                                                .unwrap_or(false)
+                                            {
+                                                div { key: "slot-{card.id}", class: "card-slot", style: "width: var(--card-w); height: var(--card-h);" }
+                                            } else {
+                                                crate::ui::views::CardView {
+                                                    key: "card-{card.id}",
+                                                    index: idx,
+                                                    card: card.clone(),
+                                                    selected: selected_collection == idx,
+                                                    focused: focus_value == FocusZone::Deck,
+                                                    dragging: false,
+                                                    drag_style: String::new(),
+                                                    primary_icon: "↑",
+                                                    on_select: move |idx| { focus.set(FocusZone::Deck); sel_collection.set(idx); },
+                                                    on_primary: move |idx| {
                                             let before = {
                                                 let st = engine.read();
                                                 let ids = anim::visible_card_ids(&st.state.collection, &st.state.hand);
@@ -1357,27 +1724,27 @@ pub fn App() -> Element {
                                             let new_coll_len = eng.state.collection.len();
                                             sel_collection.set(if new_coll_len == 0 { 0 } else { idx.min(new_coll_len - 1) });
                                             anim::play_flip(before, 280.0);
-                                        },
-                                        on_move_left: move |idx| {
+                                                    },
+                                                    on_move_left: move |idx| {
                                             if idx == 0 { return; }
                                             let mut eng = engine.write();
                                             let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: idx, to: idx - 1 });
                                             focus.set(FocusZone::Deck);
                                             sel_collection.set(idx - 1);
-                                        },
-                                        on_move_right: move |idx| {
+                                                    },
+                                                    on_move_right: move |idx| {
                                             let len = engine.read().state.collection.len();
                                             if idx + 1 >= len { return; }
                                             let mut eng = engine.write();
                                             let _ = eng.dispatch(kardinality::Action::ReorderCollection { from: idx, to: idx + 1 });
                                             focus.set(FocusZone::Deck);
                                             sel_collection.set(idx + 1);
-                                        },
-                                        on_docs: move |id| {
+                                                    },
+                                                    on_docs: move |id| {
                                             kardinomicon_target.set(Some(id));
                                             kardinomicon_open.set(true);
-                                        },
-                                        on_ptr_down: move |pd: crate::ui::views::PtrDown| {
+                                                    },
+                                                    on_ptr_down: move |pd: crate::ui::views::PtrDown| {
                                             if let Some(card) = engine.read().state.collection.get(pd.index).cloned() {
                                                 drag.set(Some(PtrDrag {
                                                     zone: FocusZone::Deck,
@@ -1394,7 +1761,10 @@ pub fn App() -> Element {
                                             }
                                             focus.set(FocusZone::Deck);
                                             sel_collection.set(pd.index);
-                                        },
+                                                    },
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1422,6 +1792,7 @@ pub fn App() -> Element {
                             index: d.index,
                             card: d.card.clone(),
                             selected: false,
+                            focused: false,
                             dragging: true,
                             drag_style: format!(
                                 "position: fixed; left: {}px; top: {}px;",
@@ -1444,8 +1815,8 @@ pub fn App() -> Element {
             if pb_active() {
                 div { class: "fx-blocker" }
                 div { class: "fx-layer",
-                    if let Some((x, y, text)) = pb_call() {
-                        div { class: "fx-call", style: "left: {x}px; top: {y}px;", "{text}" }
+                    if let Some((x, y, text, cls)) = pb_step() {
+                        div { class: "fx-step {cls}", style: "left: {x}px; top: {y}px;", "{text}" }
                     }
                     for p in pb_projs() {
                         FxOverlayProj { proj: p }
@@ -1464,5 +1835,3 @@ pub fn App() -> Element {
         }
     }
 }
-
-

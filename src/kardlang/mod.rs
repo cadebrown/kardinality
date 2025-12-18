@@ -9,9 +9,7 @@ mod token;
 pub use ast::{BinOp, Call, Expr, Program};
 pub use cost::effective_len;
 pub use grammar::GRAMMAR;
-pub use lexer::{lex, LexError};
-pub use parser::{parse_program, ParseError};
+pub use lexer::{LexError, lex};
+pub use parser::{ParseError, parse_program};
 pub use span::Span;
 pub use token::{Token, TokenKind};
-
-

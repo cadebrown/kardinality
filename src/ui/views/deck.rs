@@ -1,11 +1,7 @@
 use dioxus::prelude::*;
 
 #[component]
-pub fn DeckWidget(
-    deck_count: usize,
-    collection_count: usize,
-    level: u32,
-) -> Element {
+pub fn DeckWidget(deck_count: usize, collection_count: usize, level: u32) -> Element {
     rsx! {
         div { class: "panel deck-widget",
             h2 { class: "deck-title", "Source // Lvl {level}" }
@@ -22,5 +18,3 @@ pub fn DeckWidget(
         }
     }
 }
-
-

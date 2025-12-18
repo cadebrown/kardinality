@@ -1,8 +1,6 @@
 use thiserror::Error;
 
-use super::{
-    lex, BinOp, Call, Expr, LexError, Program, Span, Token, TokenKind,
-};
+use super::{BinOp, Call, Expr, LexError, Program, Span, Token, TokenKind, lex};
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message} at {span:?}")]
@@ -214,5 +212,3 @@ mod tests {
         assert_eq!(p.calls[0].name, "score");
     }
 }
-
-

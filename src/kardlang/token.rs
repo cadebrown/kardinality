@@ -21,5 +21,3 @@ pub enum TokenKind {
     Semi,
     Eof,
 }
-
-

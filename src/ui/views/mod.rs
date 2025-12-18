@@ -12,5 +12,3 @@ pub use hud::RegistersBody;
 pub use kardinomicon::KardinomiconModal;
 pub use pile::PileWidget;
 pub use sidebar::{Sidebar, SidebarTab};
-
-

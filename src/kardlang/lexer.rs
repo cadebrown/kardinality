@@ -107,5 +107,3 @@ mod tests {
         assert!(t.iter().any(|t| matches!(t.kind, TokenKind::Semi)));
     }
 }
-
-

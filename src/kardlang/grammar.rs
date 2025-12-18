@@ -25,5 +25,3 @@ Notes
 * Digit shorthand is intentionally single-digit (no multi-digit literals).
 * Cost model (enforced at the card level): each character costs 1, except digits cost their numeric value (0 costs 1).
 "#;
-
-

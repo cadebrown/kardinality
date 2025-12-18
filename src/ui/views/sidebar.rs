@@ -94,7 +94,7 @@ pub fn Sidebar(
                     if state.trace.is_empty() {
                         div { class: "empty", "No trace yet. Assemble a hand and execute." }
                     } else {
-                        div { class: "trace-list",
+                        div { class: "trace-list selectable",
                             for evt in state.trace.iter().rev().take(120) {
                                 TraceItem { evt: evt.clone() }
                             }
@@ -157,5 +157,3 @@ fn TraceItem(evt: kardinality::TraceEvent) -> Element {
 
     rsx! { div { class: "{class}", "{text}" } }
 }
-
-

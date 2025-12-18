@@ -14,7 +14,9 @@ pub struct StateDelta {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TraceEvent {
-    Action { action: String },
+    Action {
+        action: String,
+    },
     CardStart {
         index: usize,
         name: String,
@@ -27,10 +29,13 @@ pub enum TraceEvent {
         name: String,
         delta: StateDelta,
     },
-    Call { name: String, args: Vec<String> },
-    EffectApplied { effect: Effect },
+    Call {
+        name: String,
+        args: Vec<String>,
+    },
+    EffectApplied {
+        effect: Effect,
+    },
     Info(String),
     Error(String),
 }
-
-

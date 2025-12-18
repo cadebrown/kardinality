@@ -55,6 +55,31 @@ button, input, select {
   font-family: inherit;
 }
 
+/* Selection policy:
+   * Default: no text selection in the game UI (prevents drag-select / random highlights)
+   * Opt-in: `.selectable` for trace/docs/blocks where copying is useful
+   * During drag: force-disable selection everywhere (even selectable areas) */
+.app {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.app.is-dragging,
+.app.is-dragging * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+.app.is-dragging {
+  cursor: grabbing;
+}
+
 .app {
   height: 100vh;
   display: grid;
@@ -372,17 +397,30 @@ button, input, select {
   grid-template-columns: minmax(320px, 360px) 1fr 238px;
   gap: 14px;
   align-items: stretch;
-  flex: 0 0 var(--topbar-h);
-  height: var(--topbar-h);
-  min-height: var(--topbar-h);
+  /* Don't force a fixed height: allow contents to size naturally to avoid clipping. */
+  flex: 0 0 auto;
   z-index: 200;
 }
 
 .run-pane {
-  display: grid;
-  grid-template-rows: auto auto 6px;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  padding: 12px;
+  min-height: 0;
   overflow: hidden;
+}
+
+.run-top {
+  flex: 0 0 auto;
+}
+
+.run-bottom {
+  margin-top: auto;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .run-buttons {
@@ -479,7 +517,7 @@ button, input, select {
 .content {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   display: grid;
   grid-template-rows: 1fr 1fr;
   gap: 14px;
@@ -488,7 +526,8 @@ button, input, select {
 .handbar,
 .deckbar {
   min-height: 0;
-  overflow: hidden;
+  /* Allow selected-card glow to escape panel bounds. */
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
@@ -506,12 +545,60 @@ button, input, select {
 }
 
 .pile-widget {
-  width: calc(var(--card-w) + 18px);
-  flex: 0 0 calc(var(--card-w) + 18px);
+  /* Keep right column aligned with the topbar right rail. */
+  width: 238px;
+  flex: 0 0 238px;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   padding: 10px;
+}
+
+.card-wrap {
+  position: relative;
+  display: block;
+}
+
+/* Drop sliver between cards (hit target) */
+.drop-slit {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 16px;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  background: rgba(0, 255, 156, 0.08);
+  border: 1px solid rgba(0, 255, 156, 0.10);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  transition: opacity 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.drop-slit.left { left: -10px; }
+.drop-slit.right { right: -10px; }
+
+/* Only show drop slivers while dragging */
+.app.is-dragging .drop-slit {
+  opacity: 0.22;
+  pointer-events: auto;
+}
+
+.app.is-dragging .drop-slit.active {
+  opacity: 1;
+  background: rgba(0, 255, 156, 0.16);
+  border-color: rgba(0, 255, 156, 0.62);
+  box-shadow: 0 0 26px rgba(0, 255, 156, 0.18), 0 0 70px rgba(0, 200, 255, 0.10);
+}
+
+/* Swap target feedback (drop centered on a card) */
+.app.is-dragging .card-wrap.swap-target > .card {
+  outline: 3px solid rgba(0, 200, 255, 0.72);
+  outline-offset: 2px;
+  box-shadow:
+    0 30px 76px rgba(0, 0, 0, 0.62),
+    0 0 0 2px rgba(0, 200, 255, 0.18) inset,
+    0 0 42px rgba(0, 200, 255, 0.22),
+    0 0 110px rgba(0, 255, 156, 0.12);
 }
 
 .pile-face {
@@ -664,9 +751,12 @@ button, input, select {
 
 .fx-card.executing {
   animation: fxshake 140ms infinite;
-  filter: saturate(1.15) contrast(1.08);
-  outline: 2px solid rgba(255, 77, 255, 0.55);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.32) inset, 0 0 42px rgba(255, 77, 255, 0.18), 0 0 72px rgba(0, 200, 255, 0.10);
+  filter: saturate(1.22) contrast(1.10) brightness(1.04);
+  outline: 3px solid rgba(255, 77, 255, 0.72);
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.32) inset,
+    0 0 62px rgba(255, 77, 255, 0.24),
+    0 0 110px rgba(0, 200, 255, 0.14);
 }
 
 .fx-call {
@@ -680,6 +770,36 @@ button, input, select {
   border: 1px solid rgba(0, 255, 156, 0.24);
   background: rgba(0, 0, 0, 0.55);
   box-shadow: 0 0 22px rgba(0, 255, 156, 0.14);
+}
+
+/* Playback step tooltip (near executing card) */
+.fx-step {
+  position: fixed;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.35px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 156, 0.26);
+  background: rgba(0, 0, 0, 0.62);
+  box-shadow: 0 0 22px rgba(0, 255, 156, 0.16);
+  pointer-events: none;
+  animation: stepPop 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.fx-step.card { border-color: rgba(255, 77, 255, 0.34); box-shadow: 0 0 24px rgba(255, 77, 255, 0.14); }
+.fx-step.call { border-color: rgba(0, 200, 255, 0.34); box-shadow: 0 0 24px rgba(0, 200, 255, 0.14); }
+.fx-step.pos  { border-color: rgba(0, 255, 156, 0.34); box-shadow: 0 0 24px rgba(0, 255, 156, 0.16); }
+.fx-step.neg  { border-color: rgba(255, 77, 109, 0.38); box-shadow: 0 0 24px rgba(255, 77, 109, 0.16); }
+.fx-step.mul  { border-color: rgba(0, 200, 255, 0.38); box-shadow: 0 0 24px rgba(0, 200, 255, 0.16); }
+.fx-step.info { border-color: rgba(238, 255, 248, 0.20); box-shadow: 0 0 24px rgba(238, 255, 248, 0.10); }
+
+@keyframes stepPop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) translateY(10px) scale(0.92); }
+  15%  { opacity: 1; transform: translate(-50%, -50%) translateY(0px) scale(1.02); }
+  100% { opacity: 1; transform: translate(-50%, -50%) translateY(0px) scale(1.00); }
 }
 
 .fx-bump {
@@ -1127,25 +1247,44 @@ button, input, select {
 }
 
 .card.selected {
-  border-color: rgba(0, 255, 156, 0.92);
-  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.58), 0 0 34px rgba(0, 255, 156, 0.26), 0 0 84px rgba(0, 200, 255, 0.14);
-  z-index: 80;
+  /* Selected card stays visible even if focus is elsewhere. */
+  border-color: rgba(0, 255, 156, 0.78);
+  box-shadow:
+    0 26px 66px rgba(0, 0, 0, 0.60),
+    0 0 0 2px rgba(0, 255, 156, 0.10) inset,
+    0 0 28px rgba(0, 255, 156, 0.18);
+  z-index: 220;
 }
 
-.card.selected::after {
+.card.selected.focused {
+  /* Make focus unmistakable (keyboard + mouse): BIG glow + lift */
+  border-color: rgba(0, 255, 156, 0.98);
+  transform: translateY(-10px) rotate(-0.6deg) scale(1.045);
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.68),
+    0 0 0 2px rgba(0, 255, 156, 0.16) inset,
+    0 0 0 2px rgba(0, 255, 156, 0.55),
+    0 0 42px rgba(0, 255, 156, 0.34),
+    0 0 120px rgba(0, 200, 255, 0.18);
+  z-index: 800;
+}
+
+.card.selected.focused::after {
   content: "";
   position: absolute;
   inset: -4px;
   border-radius: calc(var(--card-r) + 6px);
-  border: 2px solid rgba(0, 255, 156, 0.66);
-  box-shadow: 0 0 18px rgba(0, 255, 156, 0.22), 0 0 52px rgba(0, 200, 255, 0.12);
+  border: 3px solid rgba(0, 255, 156, 0.78);
+  box-shadow:
+    0 0 28px rgba(0, 255, 156, 0.32),
+    0 0 82px rgba(0, 200, 255, 0.18);
   pointer-events: none;
-  animation: selectedPulse 1100ms ease-in-out infinite;
+  animation: selectedPulse 820ms ease-in-out infinite;
 }
 
 @keyframes selectedPulse {
-  0%, 100% { opacity: 0.65; filter: saturate(1.0); }
-  50% { opacity: 1.0; filter: saturate(1.2); }
+  0%, 100% { opacity: 0.60; filter: saturate(1.05) brightness(1.02); }
+  50% { opacity: 1.00; filter: saturate(1.25) brightness(1.06); }
 }
 
 .card.drop-in {
@@ -1168,6 +1307,11 @@ button, input, select {
 }
 
 .app.is-dragging .card:hover {
+  transform: none;
+}
+
+.app.is-dragging .card.selected {
+  /* During drag we disable hover transforms; keep selection readable but stable. */
   transform: none;
 }
 
@@ -1569,5 +1713,3 @@ button, input, select {
   line-height: 1.55;
 }
 "#;
-
-

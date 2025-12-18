@@ -11,5 +11,3 @@ pub enum Effect {
     Again(i64),
     Mutate,
 }
-
-

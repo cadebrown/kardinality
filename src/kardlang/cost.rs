@@ -8,5 +8,3 @@ pub fn effective_len(source: &str) -> usize {
         })
         .sum()
 }
-
-

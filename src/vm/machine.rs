@@ -41,7 +41,11 @@ impl Machine {
         Self { steps: 0, limits }
     }
 
-    pub fn eval_call<C: VmContext>(&mut self, call: &Call, ctx: &C) -> Result<Vec<Effect>, VmError> {
+    pub fn eval_call<C: VmContext>(
+        &mut self,
+        call: &Call,
+        ctx: &C,
+    ) -> Result<Vec<Effect>, VmError> {
         self.steps += 1;
         if self.steps > self.limits.max_steps {
             return Err(VmError::StepLimitExceeded {
@@ -165,5 +169,3 @@ fn fibo(n: i64) -> Result<i64, VmError> {
     }
     Ok(a)
 }
-
-

@@ -6,5 +6,3 @@ mod trace;
 pub use engine::{Action, Engine, GameError};
 pub use model::{CardInstance, GameState, HistoryEntry, Phase};
 pub use trace::TraceEvent;
-
-

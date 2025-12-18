@@ -101,7 +101,9 @@ mod imp {
             return;
         };
         if let Ok(html) = el.dyn_into::<web_sys::HtmlElement>() {
-            let _ = html.style().set_property("opacity", &format!("{opacity:.3}"));
+            let _ = html
+                .style()
+                .set_property("opacity", &format!("{opacity:.3}"));
         }
     }
 
@@ -133,10 +135,16 @@ mod imp {
         }
 
         let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-            let Some(window) = web_sys::window() else { return };
+            let Some(window) = web_sys::window() else {
+                return;
+            };
             let Some(doc) = window.document() else { return };
-            let Some(el) = doc.get_element_by_id(&id) else { return };
-            let Ok(html) = el.dyn_into::<web_sys::HtmlElement>() else { return };
+            let Some(el) = doc.get_element_by_id(&id) else {
+                return;
+            };
+            let Ok(html) = el.dyn_into::<web_sys::HtmlElement>() else {
+                return;
+            };
             let cur = html.class_name();
             let next = cur
                 .split_whitespace()
@@ -146,10 +154,8 @@ mod imp {
             html.set_class_name(&next);
         }) as Box<dyn FnMut()>);
 
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            ms,
-        );
+        let _ = window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms);
         cb.forget();
     }
 
@@ -239,16 +245,15 @@ mod imp {
             }
 
             // Step 2: next frame, animate back to identity
-            let Some(window2) = web_sys::window() else { return };
+            let Some(window2) = web_sys::window() else {
+                return;
+            };
             let cb2 = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
                 for html in animated.iter() {
                     let style = html.style();
                     let _ = style.set_property(
                         "transition",
-                        &format!(
-                            "transform {}ms cubic-bezier(0.16, 1, 0.3, 1)",
-                            duration_ms
-                        ),
+                        &format!("transform {}ms cubic-bezier(0.16, 1, 0.3, 1)", duration_ms),
                     );
                     let _ = style.set_property("transform", "translate(0px, 0px)");
                 }
@@ -267,7 +272,8 @@ mod imp {
                             let _ = style.set_property("overflow-x", "scroll");
                             let _ = style.set_property("overflow-y", "visible");
                         }
-                    }) as Box<dyn FnMut()>);
+                    })
+                        as Box<dyn FnMut()>);
 
                     let _ = window3.set_timeout_with_callback_and_timeout_and_arguments_0(
                         cb3.as_ref().unchecked_ref(),
@@ -331,39 +337,91 @@ mod imp {
         pub rel_x: Option<f64>,
         /// The zone under the pointer (hand/deck), if any.
         pub zone: Option<HitZone>,
+        /// If the pointer is over a drop sliver, the insertion index (0..=len).
+        pub drop_index: Option<usize>,
     }
 
     pub fn hit_test(client_x: f64, client_y: f64) -> HitTest {
         let Some(window) = web_sys::window() else {
-            return HitTest { card_id: None, rel_x: None, zone: None };
+            return HitTest {
+                card_id: None,
+                rel_x: None,
+                zone: None,
+                drop_index: None,
+            };
         };
         let Some(doc) = window.document() else {
-            return HitTest { card_id: None, rel_x: None, zone: None };
+            return HitTest {
+                card_id: None,
+                rel_x: None,
+                zone: None,
+                drop_index: None,
+            };
         };
 
         let el = doc.element_from_point(client_x as f32, client_y as f32);
 
         let mut zone: Option<HitZone> = None;
         if let Some(el) = el.as_ref() {
-            if el.closest(r#"[data-testid="hand-zone"]"#).ok().flatten().is_some() {
+            if el
+                .closest(r#"[data-testid="hand-zone"]"#)
+                .ok()
+                .flatten()
+                .is_some()
+            {
                 zone = Some(HitZone::Hand);
-            } else if el.closest(r#"[data-testid="deck-zone"]"#).ok().flatten().is_some() {
+            } else if el
+                .closest(r#"[data-testid="deck-zone"]"#)
+                .ok()
+                .flatten()
+                .is_some()
+            {
                 zone = Some(HitZone::Deck);
             }
         }
 
         let Some(el) = el else {
-            return HitTest { card_id: None, rel_x: None, zone };
+            return HitTest {
+                card_id: None,
+                rel_x: None,
+                zone,
+                drop_index: None,
+            };
         };
 
+        // Drop slivers (between cards): prefer these over card hit-testing.
+        if let Ok(Some(slot)) = el.closest(r#"[data-drop-zone][data-drop-index]"#) {
+            let z = slot
+                .get_attribute("data-drop-zone")
+                .as_deref()
+                .and_then(|s| match s {
+                    "hand" => Some(HitZone::Hand),
+                    "deck" => Some(HitZone::Deck),
+                    _ => None,
+                });
+            let idx = slot
+                .get_attribute("data-drop-index")
+                .and_then(|s| s.parse::<usize>().ok());
+            if let (Some(z), Some(idx)) = (z, idx) {
+                return HitTest {
+                    card_id: None,
+                    rel_x: None,
+                    zone: Some(z),
+                    drop_index: Some(idx),
+                };
+            }
+        }
+
         // Find the nearest card element by id="card-<u64>"
-        let card_el = el
-            .closest(r#"[id^="card-"]"#)
-            .ok()
-            .flatten();
+        let card_el = el.closest(r#"[id^="card-"]"#).ok().flatten();
 
         let Some(card_el) = card_el else {
-            return HitTest { card_id: None, rel_x: None, zone };
+            return HitTest {
+                card_id: None,
+                rel_x: None,
+                zone,
+                drop_index: None,
+            };
         };
 
         let id_str = card_el.id();
@@ -372,7 +430,12 @@ mod imp {
         let w = rect.width().max(1.0);
         let rel = ((client_x - rect.left()) / w).clamp(0.0, 1.0);
 
-        HitTest { card_id: id, rel_x: Some(rel), zone }
+        HitTest {
+            card_id: id,
+            rel_x: Some(rel),
+            zone,
+            drop_index: None,
+        }
     }
 }
 
@@ -456,13 +519,17 @@ mod imp {
         pub card_id: Option<u64>,
         pub rel_x: Option<f64>,
         pub zone: Option<HitZone>,
+        pub drop_index: Option<usize>,
     }
 
     pub fn hit_test(_client_x: f64, _client_y: f64) -> HitTest {
-        HitTest { card_id: None, rel_x: None, zone: None }
+        HitTest {
+            card_id: None,
+            rel_x: None,
+            zone: None,
+            drop_index: None,
+        }
     }
 }
 
 pub use imp::*;
-
-

@@ -14,6 +14,7 @@ pub fn CardView(
     index: usize,
     card: kardinality::game::CardInstance,
     selected: bool,
+    focused: bool,
     dragging: bool,
     drag_style: String,
     primary_icon: &'static str,
@@ -63,12 +64,17 @@ pub fn CardView(
                     kardinality::kardlang::TokenKind::Ident(name) => {
                         let is_fn = matches!(
                             name.as_str(),
-                            "draw" | "score" | "bank" | "dbl" | "tri" | "fibo" | "clone" | "again" | "mutate"
+                            "draw"
+                                | "score"
+                                | "bank"
+                                | "dbl"
+                                | "tri"
+                                | "fibo"
+                                | "clone"
+                                | "again"
+                                | "mutate"
                         );
-                        let is_reg = matches!(
-                            name.as_str(),
-                            "len_deck" | "len_hand" | "lvl"
-                        );
+                        let is_reg = matches!(name.as_str(), "len_deck" | "len_hand" | "lvl");
 
                         if name == "acc" {
                             "acc"
@@ -101,6 +107,9 @@ pub fn CardView(
     } else {
         format!("card {kind_class}")
     };
+    if focused {
+        class.push_str(" focused");
+    }
     if dragging {
         class.push_str(" dragging");
     }
@@ -131,10 +140,11 @@ pub fn CardView(
                     class: "card-docs",
                     title: "Docs",
                     draggable: "false",
-                    onclick: move |evt| {
+                    onpointerdown: move |evt| {
                         evt.stop_propagation();
+                        evt.prevent_default();
                     },
-                    onmousedown: move |evt| {
+                    onclick: move |evt| {
                         evt.stop_propagation();
                         on_docs.call(def_id.clone());
                     },
@@ -184,5 +194,3 @@ pub fn CardView(
         }
     }
 }
-
-

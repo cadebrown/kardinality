@@ -147,5 +147,3 @@ Doubles your bankroll.
 "#,
     },
 ];
-
-
