@@ -41,13 +41,23 @@ test("large decks/hands keep topbar + play button accessible", async ({ page }, 
   // Arrow navigation should auto-scroll the selected card into view.
   const first = deck.locator(".card").first();
   await first.click();
+  const firstId = await first.getAttribute("id");
   for (let i = 0; i < 18; i++) {
     await page.keyboard.press("ArrowRight");
   }
-  const after = await deckRow.evaluate((el: HTMLElement) => el.scrollLeft);
-  expect(after).toBeGreaterThan(sizes.scrollLeft);
+
+  const selected = deck.locator('.card[data-selected="true"]').first();
+  const selectedId = await selected.getAttribute("id");
+  expect(selectedId).not.toEqual(firstId);
+
+  const visibleInRow = await selected.evaluate((el: HTMLElement) => {
+    const parent = el.closest(".row-scroll") as HTMLElement | null;
+    if (!parent) return false;
+    const r = el.getBoundingClientRect();
+    const pr = parent.getBoundingClientRect();
+    return r.left >= pr.left - 1 && r.right <= pr.right + 1;
+  });
+  expect(visibleInRow).toBeTruthy();
 
   await page.screenshot({ path: testInfo.outputPath("01-layout-large.png"), fullPage: true });
 });
-
-

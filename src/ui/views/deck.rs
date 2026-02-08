@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 pub fn DeckWidget(deck_count: usize, collection_count: usize, level: u32) -> Element {
     rsx! {
         div { class: "panel deck-widget",
-            h2 { class: "deck-title", "Source // Lvl {level}" }
+            h2 { class: "deck-title", "Source Reactor // Lvl {level}" }
 
             div { class: "deck-stack",
                 div { class: "deck-card" }
@@ -12,8 +12,8 @@ pub fn DeckWidget(deck_count: usize, collection_count: usize, level: u32) -> Ele
             }
 
             div { class: "deck-meta",
-                div { class: "pill", span { "Source" } strong { "data-testid": "source-count", "{deck_count}" } }
-                div { class: "pill", span { "Deck" } strong { "data-testid": "deck-count", "{collection_count}" } }
+                div { class: "pill", span { "Source Flux" } strong { "data-testid": "source-count", "{deck_count}" } }
+                div { class: "pill", span { "Code Deck" } strong { "data-testid": "deck-count", "{collection_count}" } }
             }
         }
     }

@@ -869,6 +869,32 @@ pub fn App() -> Element {
         state.collection.clone()
     };
 
+    // Focus halo (tracked by a RAF loop in `anim`): provide the target id + zone via data attrs.
+    let halo_zone: &'static str = match focus_value {
+        FocusZone::Hand => "hand",
+        FocusZone::Deck => "deck",
+        _ => "",
+    };
+    let halo_target: Option<String> = if drag_value.is_none() && !pb_active() {
+        match focus_value {
+            FocusZone::Hand => view_hand
+                .get(selected_hand.min(view_hand.len().saturating_sub(1)))
+                .map(|c| format!("card-{}", c.id)),
+            FocusZone::Deck => view_collection
+                .get(selected_collection.min(view_collection.len().saturating_sub(1)))
+                .map(|c| format!("card-{}", c.id)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let halo_enabled_attr = if halo_target.is_some() {
+        "true"
+    } else {
+        "false"
+    };
+    let halo_target_attr = halo_target.clone().unwrap_or_default();
+
     // Precompute drag styles outside `rsx!` (the macro doesn't like `let` inside loops).
     // When dragging, render the dragged card in a floating drag-layer instead of inside the list.
 
@@ -876,14 +902,21 @@ pub fn App() -> Element {
         style { {theme::CSS} }
 
         div {
+            id: "app-root",
             class: "{app_class}",
             tabindex: "0",
+            "data-halo-enabled": "{halo_enabled_attr}",
+            "data-halo-target": "{halo_target_attr}",
+            "data-halo-zone": "{halo_zone}",
             onmounted: move |evt| {
                 // Keep the app keyboard-first: focus the root so arrow keys work immediately.
                 let node = evt.data();
                 spawn(async move {
                     let _ = node.set_focus(true).await;
                 });
+
+                // Start the focus halo tracker (browser builds only; no-op on desktop).
+                anim::start_focus_halo_loop();
 
                 // E2E / debug harness: allow pre-filling the Deck with many cards via `?prefill=N`.
                 if let Some(v) = anim::query_param("prefill") {
@@ -1498,6 +1531,10 @@ pub fn App() -> Element {
                         RegistersBody {
                             collection_count: display_collection_count,
                             hand_count: display_hand_count,
+                            source_count: display_source_count,
+                            pile_count: display_pile_count,
+                            acc: state.acc,
+                            level: state.level,
                         }
                     }
 
@@ -1831,6 +1868,12 @@ pub fn App() -> Element {
                         FxOverlayBump { bump: b }
                     }
                 }
+            }
+
+            // Focus halo overlay (positioned by `anim::start_focus_halo_loop`).
+            // Always present in DOM, but shown/hidden via the loop.
+            div { class: "focus-layer",
+                div { id: "focus-halo", class: "focus-halo" }
             }
         }
     }

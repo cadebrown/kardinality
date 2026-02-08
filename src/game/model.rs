@@ -11,6 +11,12 @@ pub enum Phase {
     GameOver,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunMode {
+    Classic,
+    Puzzle,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub card_id: u64,
@@ -44,6 +50,18 @@ pub struct GameState {
     pub level: u32,
     pub target_score: i64,
     pub phase: Phase,
+    pub mode: RunMode,
+    pub turn: u32,
+    pub puzzle_id: Option<String>,
+    pub puzzle_title: Option<String>,
+    pub puzzle_blurb: Option<String>,
+    pub puzzle_hint: Option<String>,
+    pub puzzle_theme: Option<String>,
+    pub puzzle_play_limit: Option<u32>,
+    pub puzzle_bankroll_goal: Option<i64>,
+    pub puzzle_solved: bool,
+    pub puzzle_failed: bool,
+    pub puzzle_message: Option<String>,
 
     /// Draw pile. Hidden-ish, but still deterministic and reorderable for debug later.
     pub deck: Vec<CardInstance>,
@@ -74,6 +92,18 @@ impl GameState {
             level: 1,
             target_score: 10,
             phase: Phase::InLevel,
+            mode: RunMode::Classic,
+            turn: 0,
+            puzzle_id: None,
+            puzzle_title: None,
+            puzzle_blurb: None,
+            puzzle_hint: None,
+            puzzle_theme: None,
+            puzzle_play_limit: None,
+            puzzle_bankroll_goal: None,
+            puzzle_solved: false,
+            puzzle_failed: false,
+            puzzle_message: None,
             deck,
             collection: Vec::new(),
             hand: Vec::new(),

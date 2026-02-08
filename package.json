@@ -6,8 +6,9 @@
   },
   "scripts": {
     "e2e": "bash ./scripts/e2e.sh",
-    "e2e:ui": "bash ./scripts/e2e.sh --ui"
+    "e2e:ui": "bash ./scripts/e2e.sh --ui",
+    "tutorial:video": "bash ./scripts/tutorial_video.sh --voice-provider elevenlabs",
+    "tutorial:video:strict": "bash ./scripts/tutorial_video.sh --voice-provider elevenlabs --strict-voice",
+    "tutorial:compose": "node ./scripts/compose_tutorial_video.mjs --voice-provider elevenlabs"
   }
 }
-
-

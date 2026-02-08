@@ -1,0 +1,131 @@
+name: Release Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      generate_tutorial_video:
+        description: "Generate tutorial video artifact"
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  verify-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cargo fmt check
+        run: cargo fmt --all --check
+
+      - name: Cargo test
+        run: cargo test
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx --yes playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run e2e
+
+      - name: Install cargo-binstall
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+            | bash
+
+      - name: Install Dioxus CLI
+        run: cargo binstall dioxus-cli -y --force
+
+      - name: Build web release bundle
+        run: dx bundle --release --web --out-dir bundle-web
+
+      - name: Upload web bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kardinality-web-bundle
+          path: bundle-web/public
+
+  tutorial-video:
+    needs: verify-build
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.generate_tutorial_video) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng
+
+      - name: Install neural TTS CLI
+        run: pip install edge-tts
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx --yes playwright install --with-deps chromium
+
+      - name: Install cargo-binstall
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+            | bash
+
+      - name: Install Dioxus CLI
+        run: cargo binstall dioxus-cli -y --force
+
+      - name: Generate tutorial video
+        run: npm run tutorial:video
+        env:
+          TUTORIAL_VIDEO_OUT_DIR: artifacts/tutorial-video
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          TUTORIAL_ELEVENLABS_VOICE_ID: ${{ vars.TUTORIAL_ELEVENLABS_VOICE_ID || 'pqHfZKP75CvOlQylNhV4' }}
+          TUTORIAL_ELEVENLABS_MODEL_ID: ${{ vars.TUTORIAL_ELEVENLABS_MODEL_ID || 'eleven_turbo_v2_5' }}
+          TUTORIAL_ELEVENLABS_STABILITY: ${{ vars.TUTORIAL_ELEVENLABS_STABILITY || '0.45' }}
+          TUTORIAL_ELEVENLABS_SIMILARITY: ${{ vars.TUTORIAL_ELEVENLABS_SIMILARITY || '0.78' }}
+          TUTORIAL_ELEVENLABS_STYLE: ${{ vars.TUTORIAL_ELEVENLABS_STYLE || '0.30' }}
+          TUTORIAL_VOICE_NAME: en-US-JennyNeural
+          TUTORIAL_VOICE_RATE: +2%
+          TUTORIAL_VOICE_PITCH: -2Hz
+
+      - name: Upload tutorial video artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kardinality-tutorial-video
+          path: artifacts/tutorial-video

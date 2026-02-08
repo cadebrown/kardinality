@@ -5,7 +5,7 @@ pub fn PileWidget(count: usize, recent: Vec<String>) -> Element {
     let top = recent.first().cloned().unwrap_or_default();
     rsx! {
         div { class: "panel pile-widget", "data-testid": "pile-zone",
-            h2 { class: "deck-title", "Pile" }
+            h2 { class: "deck-title", "Archive Pile" }
             div { class: "pile-face",
                 div { class: "pile-face-title", if top.is_empty() { "Empty" } else { "{top}" } }
                 div { class: "pile-face-sub", "Most recent" }

@@ -18,8 +18,8 @@ test("move Score card to hand and play hand updates score", async ({ page }, tes
   const deck = page.getByTestId("deck-zone");
   const hand = page.getByTestId("hand-zone");
 
-  // Select the "Score +4" card and move it into hand via keyboard (ArrowUp).
-  const scoreCard = deck.locator(".card", { hasText: "Score +4" }).first();
+  // Select the starter score card and move it into hand via keyboard (ArrowUp).
+  const scoreCard = deck.locator(".card", { hasText: "Tap Score" }).first();
   await scoreCard.click();
   await page.keyboard.press("ArrowUp");
 
@@ -29,7 +29,7 @@ test("move Score card to hand and play hand updates score", async ({ page }, tes
   // Play hand via the big right-rail button.
   await page.getByTestId("play").click();
 
-  await expect(page.getByTestId("score-value")).toHaveText("4/10");
+  await expect(page.getByTestId("score-value")).toHaveText("2/10");
   await expect(hand.locator(".card")).toHaveCount(0);
 
   await page.screenshot({ path: testInfo.outputPath("03-after-play.png"), fullPage: true });
@@ -47,5 +47,4 @@ test("kardinomicon has the requested tabs", async ({ page }, testInfo) => {
 
   await page.screenshot({ path: testInfo.outputPath("04-kardinomicon.png"), fullPage: true });
 });
-
 

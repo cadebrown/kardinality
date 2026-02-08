@@ -21,6 +21,7 @@ pub fn Sidebar(
 ) -> Element {
     let tab_value = tab();
     let cur_settings = settings();
+    let puzzles = kardinality::game::puzzles::catalog();
 
     // Sidebar focus highlight handled inline for each button (controls are dynamic).
 
@@ -77,6 +78,78 @@ pub fn Sidebar(
                             kardinomicon_open.set(true);
                         },
                         "Open docs"
+                    }
+                }
+
+                div { class: "panel sidebar-panel",
+                    h3 { "Puzzles / Tutorials" }
+                    div { class: "hint",
+                        "Preset deck-hand combos that teach patterns with guided hints."
+                    }
+
+                    if state.mode == kardinality::game::RunMode::Puzzle {
+                        div { class: "kv", span { "Puzzle" } code { "{state.puzzle_title.clone().unwrap_or_else(|| \"Untitled\".to_string())}" } }
+                        div { class: "kv", span { "Status" } code {
+                            if state.puzzle_solved {
+                                "Solved"
+                            } else if state.puzzle_failed {
+                                "Failed"
+                            } else {
+                                "In Progress"
+                            }
+                        } }
+                        div { class: "kv", span { "Goal" } code { "{puzzle_goal_text(state)}" } }
+                        if let Some(limit) = state.puzzle_play_limit {
+                            div { class: "kv", span { "Plays Left" } code { "{limit.saturating_sub(state.turn)}" } }
+                        }
+                        if let Some(hint) = state.puzzle_hint.as_deref() {
+                            div { class: "puzzle-hint-hero selectable",
+                                div { class: "puzzle-hint-kicker", "Hint:" }
+                                p { class: "puzzle-hint-text", "{hint}" }
+                            }
+                        }
+                        if let Some(msg) = state.puzzle_message.as_deref() {
+                            div { class: "puzzle-message-banner selectable", "{msg}" }
+                        }
+                        if let Some(id) = state.puzzle_id.as_deref() {
+                            button {
+                                class: "btn secondary",
+                                onclick: {
+                                    let retry_id = id.to_string();
+                                    move |_| {
+                                        let mut eng = engine.write();
+                                        if let Err(e) = eng.dispatch(kardinality::Action::StartPuzzle { id: retry_id.clone() }) {
+                                            eng.state.trace.push(kardinality::TraceEvent::Error(e.to_string()));
+                                        }
+                                    }
+                                },
+                                "Retry puzzle"
+                            }
+                        }
+                    } else {
+                        div { class: "hint", "No puzzle active. Pick one below." }
+                    }
+
+                    div { class: "trace-list",
+                        for p in puzzles {
+                            button {
+                                class: "btn secondary",
+                                "data-testid": "puzzle-{p.id}",
+                                onclick: move |_| {
+                                    {
+                                        let mut s = settings.write();
+                                        if let Some(theme) = theme_from_puzzle_key(p.theme) {
+                                            s.theme = theme;
+                                        }
+                                    }
+                                    let mut eng = engine.write();
+                                    if let Err(e) = eng.dispatch(kardinality::Action::StartPuzzle { id: p.id.to_string() }) {
+                                        eng.state.trace.push(kardinality::TraceEvent::Error(e.to_string()));
+                                    }
+                                },
+                                "{p.name}"
+                            }
+                        }
                     }
                 }
             } else if tab_value == SidebarTab::Debug {
@@ -156,4 +229,20 @@ fn TraceItem(evt: kardinality::TraceEvent) -> Element {
     };
 
     rsx! { div { class: "{class}", "{text}" } }
+}
+
+fn theme_from_puzzle_key(key: &str) -> Option<UiTheme> {
+    match key {
+        "crt" => Some(UiTheme::Crt),
+        "terminal" => Some(UiTheme::Terminal),
+        "magic" => Some(UiTheme::Magic),
+        _ => None,
+    }
+}
+
+fn puzzle_goal_text(state: &kardinality::game::GameState) -> String {
+    match state.puzzle_bankroll_goal {
+        Some(goal) => format!("score >= {} and bank >= {}", state.target_score, goal),
+        None => format!("score >= {}", state.target_score),
+    }
 }

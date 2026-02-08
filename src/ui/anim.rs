@@ -3,7 +3,9 @@
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
+    use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::rc::Rc;
 
     use wasm_bindgen::JsCast;
 
@@ -170,6 +172,72 @@ mod imp {
         let _ = JsFuture::from(promise).await;
     }
 
+    pub fn start_focus_halo_loop() {
+        thread_local! {
+            static HALO_CB: RefCell<Option<wasm_bindgen::closure::Closure<dyn FnMut(f64)>>> =
+                RefCell::new(None);
+        }
+
+        // Already started?
+        let already = HALO_CB.with(|c| c.borrow().is_some());
+        if already {
+            return;
+        }
+
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(doc) = window.document() else {
+            return;
+        };
+
+        let window2 = window.clone();
+        let doc2 = doc.clone();
+
+        // The callback reschedules itself via the thread-local stored closure.
+        let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move |_ts: f64| {
+            let app = doc2.get_element_by_id("app-root");
+            let halo_el = doc2.get_element_by_id("focus-halo");
+
+            if let (Some(app), Some(halo_el)) = (app, halo_el) {
+                if let Ok(halo) = halo_el.dyn_into::<web_sys::HtmlElement>() {
+                    let enabled =
+                        app.get_attribute("data-halo-enabled").unwrap_or_default() == "true";
+                    let target = app.get_attribute("data-halo-target").unwrap_or_default();
+                    let zone = app.get_attribute("data-halo-zone").unwrap_or_default();
+
+                    if !enabled || target.is_empty() {
+                        let _ = halo.style().set_property("display", "none");
+                    } else if let Some(t) = doc2.get_element_by_id(&target) {
+                        let rect = t.get_bounding_client_rect();
+                        let style = halo.style();
+                        let _ = style.set_property("display", "block");
+                        let _ = style.set_property("left", &format!("{}px", rect.left()));
+                        let _ = style.set_property("top", &format!("{}px", rect.top()));
+                        let _ = style.set_property("width", &format!("{}px", rect.width()));
+                        let _ = style.set_property("height", &format!("{}px", rect.height()));
+                        halo.set_class_name(&format!("focus-halo {zone}"));
+                    } else {
+                        let _ = halo.style().set_property("display", "none");
+                    }
+                }
+            }
+
+            HALO_CB.with(|c| {
+                if let Some(cb) = c.borrow().as_ref() {
+                    let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
+                }
+            });
+        }) as Box<dyn FnMut(f64)>);
+
+        HALO_CB.with(|c| {
+            *c.borrow_mut() = Some(cb);
+            if let Some(cb) = c.borrow().as_ref() {
+                let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
+            }
+        });
+    }
+
     pub fn query_param(key: &str) -> Option<String> {
         let Some(window) = web_sys::window() else {
             return None;
@@ -211,6 +279,7 @@ mod imp {
             // Step 1: apply inverse transforms (no transition)
             let mut animated: Vec<web_sys::HtmlElement> = Vec::new();
             let mut containers: Vec<web_sys::HtmlElement> = Vec::new();
+            let mut bars: Vec<web_sys::HtmlElement> = Vec::new();
             for (id, b) in before.iter() {
                 let Some(el) = doc.get_element_by_id(id) else {
                     continue;
@@ -222,19 +291,45 @@ mod imp {
                     continue;
                 }
 
-                // Avoid clipping during movement: temporarily allow overflow in the nearest scroll row.
-                if let Ok(Some(parent)) = el.closest(".row-scroll") {
-                    if let Ok(p) = parent.dyn_into::<web_sys::HtmlElement>() {
-                        let style = p.style();
-                        let _ = style.set_property("overflow-x", "visible");
-                        let _ = style.set_property("overflow-y", "visible");
-                        containers.push(p);
-                    }
-                }
-
                 let Ok(html) = el.dyn_into::<web_sys::HtmlElement>() else {
                     continue;
                 };
+
+                // Avoid clipping while a card travels between rows/containers.
+                // NOTE: we do this without forcing scrollbars, to avoid any layout shift.
+                if let Ok(Some(parent)) = html.closest(".row-scroll") {
+                    if let Ok(p) = parent.dyn_into::<web_sys::HtmlElement>() {
+                        let already = containers.iter().any(|c| c.is_same_node(Some(p.as_ref())));
+                        if !already {
+                            let style = p.style();
+                            let _ = style.set_property("overflow-x", "visible");
+                            let _ = style.set_property("overflow-y", "visible");
+                            containers.push(p);
+                        }
+                    }
+                }
+
+                // Critical for Hand<->Deck moves:
+                // the element exists in the *destination* container when animating.
+                // If that destination panel has a lower z-index than the source panel,
+                // the card can start its FLIP "behind" the other panel and look like it disappears.
+                // Temporarily lift the nearest hand/deck panel above siblings during the animation.
+                let bar_parent = html
+                    .closest(".handbar")
+                    .ok()
+                    .flatten()
+                    .or_else(|| html.closest(".deckbar").ok().flatten());
+                if let Some(bar) = bar_parent {
+                    if let Ok(bar) = bar.dyn_into::<web_sys::HtmlElement>() {
+                        let already = bars.iter().any(|b| b.is_same_node(Some(bar.as_ref())));
+                        if !already {
+                            let style = bar.style();
+                            let _ = style.set_property("position", "relative");
+                            let _ = style.set_property("z-index", "9995");
+                            bars.push(bar);
+                        }
+                    }
+                }
 
                 let style = html.style();
                 let _ = style.set_property("transition", "none");
@@ -258,19 +353,30 @@ mod imp {
                     let _ = style.set_property("transform", "translate(0px, 0px)");
                 }
 
-                // Step 3: after animation, restore stacking order.
+                // Step 3: after animation, restore styles.
                 if let Some(window3) = web_sys::window() {
                     let animated2 = animated.clone();
                     let containers2 = containers.clone();
+                    let bars2 = bars.clone();
                     let cb3 = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
                         for html in animated2.iter() {
                             let style = html.style();
-                            let _ = style.set_property("z-index", "1");
+                            // Clear any temporary inline styles so CSS can own layout/stacking.
+                            let _ = style.set_property("transition", "");
+                            let _ = style.set_property("transform", "");
+                            let _ = style.set_property("z-index", "");
+                            let _ = style.set_property("position", "");
                         }
                         for c in containers2.iter() {
                             let style = c.style();
-                            let _ = style.set_property("overflow-x", "scroll");
-                            let _ = style.set_property("overflow-y", "visible");
+                            // Restore whatever CSS defines (e.g. overflow-x: auto).
+                            let _ = style.set_property("overflow-x", "");
+                            let _ = style.set_property("overflow-y", "");
+                        }
+                        for b in bars2.iter() {
+                            let style = b.style();
+                            let _ = style.set_property("z-index", "");
+                            let _ = style.set_property("position", "");
                         }
                     })
                         as Box<dyn FnMut()>);
@@ -309,14 +415,22 @@ mod imp {
             let Ok(container) = parent.dyn_into::<web_sys::HtmlElement>() else {
                 return;
             };
+            let Ok(card) = el.dyn_into::<web_sys::HtmlElement>() else {
+                return;
+            };
 
-            let rect = el.get_bounding_client_rect();
-            let crect = container.get_bounding_client_rect();
+            // Use layout offsets (not transformed rects) for stable keyboard scrolling.
+            let card_left = card.offset_left() as f64;
+            let card_width = card.offset_width() as f64;
+            let viewport_width = container.client_width() as f64;
+            let max_scroll = (container.scroll_width() - container.client_width()).max(0) as f64;
 
-            // Center the element in the scroll container.
-            let cur = container.scroll_left() as f64;
-            let target =
-                (rect.left() - crect.left()) + cur - (crect.width() / 2.0 - rect.width() / 2.0);
+            // Center selected card in row viewport.
+            let mut target = card_left + card_width / 2.0 - viewport_width / 2.0;
+            if !target.is_finite() {
+                return;
+            }
+            target = target.clamp(0.0, max_scroll);
             container.set_scroll_left(target.round() as i32);
         }) as Box<dyn FnMut()>);
 
@@ -506,6 +620,10 @@ mod imp {
 
     pub fn add_temp_class_for_id(_id: &str, _class: &str, _ms: i32) {
         // Desktop: no-op; temporary class manipulation for "pop-in" effect, CSS-only fallback.
+    }
+
+    pub fn start_focus_halo_loop() {
+        // Desktop: no-op.
     }
 
     #[derive(Debug, Clone, Copy, PartialEq)]

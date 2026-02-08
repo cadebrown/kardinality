@@ -28,7 +28,7 @@ pub fn CardView(
     let badge = format!("#{index}");
 
     let def_id = card.def_id.clone();
-    let (name, script, budget, icon, doc_hint, kind_class) = card
+    let (name, script, budget, icon, kind_label, kind_icon, kind_class, fn_visuals) = card
         .def()
         .map(|d| {
             let kind_class = match d.kind {
@@ -37,10 +37,17 @@ pub fn CardView(
                 kardinality::game::cards::CardKind::Control => "kind-control",
                 kardinality::game::cards::CardKind::Meta => "kind-meta",
             };
-            (d.name, d.script, d.budget, d.icon, d.kind, kind_class)
-        })
-        .map(|(name, script, budget, icon, kind, kind_class)| {
-            (name, script, budget, icon, format!("{kind:?}"), kind_class)
+            let kind_visual = kardinality::game::cards::kind_visual(d.kind);
+            (
+                d.name,
+                d.script,
+                d.budget,
+                d.icon,
+                kind_visual.label.to_string(),
+                kind_visual.icon,
+                kind_class,
+                kardinality::game::cards::script_function_visuals(d.script),
+            )
         })
         .unwrap_or((
             "Missing Card",
@@ -48,7 +55,9 @@ pub fn CardView(
             0,
             "?",
             "Missing".to_string(),
+            "?",
             "kind-missing",
+            Vec::new(),
         ));
 
     let script_spans: Vec<(String, &'static str)> = match kardinality::kardlang::lex(script) {
@@ -65,18 +74,63 @@ pub fn CardView(
                         let is_fn = matches!(
                             name.as_str(),
                             "draw"
+                                | "d"
                                 | "score"
+                                | "s"
                                 | "bank"
+                                | "b"
                                 | "dbl"
+                                | "x"
                                 | "tri"
+                                | "t"
                                 | "fibo"
+                                | "f"
                                 | "clone"
+                                | "c"
                                 | "again"
+                                | "a"
                                 | "mutate"
+                                | "m"
+                                | "jam"
+                                | "j"
+                                | "mint"
+                                | "i"
+                                | "cash"
+                                | "v"
+                                | "hedge"
+                                | "h"
+                                | "wild"
+                                | "w"
                         );
-                        let is_reg = matches!(name.as_str(), "len_deck" | "len_hand" | "lvl");
+                        let is_reg = matches!(
+                            name.as_str(),
+                            "len_deck"
+                                | "len_pool"
+                                | "len_collection"
+                                | "len_hand"
+                                | "len_source"
+                                | "len_draw"
+                                | "len_pile"
+                                | "len_discard"
+                                | "level"
+                                | "lvl"
+                                | "target"
+                                | "bankroll"
+                                | "money"
+                                | "score"
+                                | "deck"
+                                | "hand"
+                                | "D"
+                                | "H"
+                                | "S"
+                                | "P"
+                                | "L"
+                                | "T"
+                                | "B"
+                                | "Q"
+                        );
 
-                        if name == "acc" {
+                        if name == "acc" || name == "A" {
                             "acc"
                         } else if is_fn {
                             "fn"
@@ -135,7 +189,13 @@ pub fn CardView(
                 });
             },
             div { class: "card-top",
-                div { class: "card-index", "{badge}" }
+                div { class: "card-top-left",
+                    div { class: "card-index", "{badge}" }
+                    div { class: "card-kind-tag",
+                        span { class: "kind-glyph", "{kind_icon}" }
+                        span { class: "kind-name", "{kind_label}" }
+                    }
+                }
                 button {
                     class: "card-docs",
                     title: "Docs",
@@ -151,13 +211,40 @@ pub fn CardView(
                     "📖"
                 }
             }
-            div { class: "card-art" }
+            div { class: "card-art",
+                div { class: "card-main-icon", "{icon}" }
+                div { class: "card-fx-ribbon",
+                    if fn_visuals.is_empty() {
+                        div { class: "fx-dot fx-unknown", "∅" }
+                    } else {
+                        for fx in fn_visuals.iter().take(4) {
+                            div { class: "fx-dot fx-{fx.accent}", title: "{fx.label}",
+                                span { class: "fx-glyph", "{fx.icon}" }
+                                span { class: "fx-short", "{fx.short}" }
+                            }
+                        }
+                        if fn_visuals.len() > 4 {
+                            div { class: "fx-dot fx-more", "+{fn_visuals.len() - 4}" }
+                        }
+                    }
+                }
+            }
             div { class: "card-body",
-                h3 { class: "card-title", "{icon} {name}" }
-                div { class: "card-sub", "{doc_hint} • Budget: {budget}" }
+                h3 { class: "card-title", "{name}" }
+                div { class: "card-sub", "{kind_label} • Budget: {budget}" }
                 div { class: "card-script",
                     for (text, cls) in script_spans {
                         span { class: "tok tok-{cls}", "{text}" }
+                    }
+                }
+                if !fn_visuals.is_empty() {
+                    div { class: "card-fx-row",
+                        for fx in fn_visuals {
+                            div { class: "card-fx-chip fx-{fx.accent}", title: "{fx.label}",
+                                span { class: "chip-icon", "{fx.icon}" }
+                                span { class: "chip-label", "{fx.label}" }
+                            }
+                        }
                     }
                 }
             }

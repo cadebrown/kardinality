@@ -127,26 +127,26 @@ test("drag: insert-before vs swap works inside Deck", async ({ page }, testInfo)
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const deck = page.getByTestId("deck-zone");
-  const score = deck.locator(".card", { hasText: "Score +4" }).first();
-  const draw = deck.locator(".card", { hasText: "Draw 5" }).first();
+  const score = deck.locator(".card", { hasText: "Tap Score" }).first();
+  const draw = deck.locator(".card", { hasText: "Spark Draw" }).first();
 
   // Insert-before: drag Score onto left edge of Draw -> Score becomes before Draw.
   await dragFromTo(page, score, draw, "left");
 
   const titles1 = await deck.locator(".card .card-title").allTextContents();
-  const idxScore1 = titles1.findIndex((t) => t.includes("Score +4"));
-  const idxDraw1 = titles1.findIndex((t) => t.includes("Draw 5"));
+  const idxScore1 = titles1.findIndex((t) => t.includes("Tap Score"));
+  const idxDraw1 = titles1.findIndex((t) => t.includes("Spark Draw"));
   expect(idxScore1).toBeGreaterThanOrEqual(0);
   expect(idxDraw1).toBeGreaterThanOrEqual(0);
   expect(idxScore1).toBeLessThan(idxDraw1);
 
   // Swap: drag Bank onto center of Draw -> their positions swap.
-  const bank = deck.locator(".card", { hasText: "Bank +6" }).first();
+  const bank = deck.locator(".card", { hasText: "Tap Bank" }).first();
   await dragFromTo(page, bank, draw, "center");
 
   const titles2 = await deck.locator(".card .card-title").allTextContents();
-  const idxBank2 = titles2.findIndex((t) => t.includes("Bank +6"));
-  const idxDraw2 = titles2.findIndex((t) => t.includes("Draw 5"));
+  const idxBank2 = titles2.findIndex((t) => t.includes("Tap Bank"));
+  const idxDraw2 = titles2.findIndex((t) => t.includes("Spark Draw"));
   expect(idxBank2).toBeGreaterThanOrEqual(0);
   expect(idxDraw2).toBeGreaterThanOrEqual(0);
   expect(idxBank2).not.toEqual(idxDraw2);
@@ -162,31 +162,30 @@ test("drag: insert-after works inside Hand (no drop slots)", async ({ page }, te
   const handRow = hand.locator(".row-scroll").first();
   const handDrop = page.getByTestId("hand-dropzone");
 
-  const draw = deck.locator(".card", { hasText: "Draw 5" }).first();
-  const score = deck.locator(".card", { hasText: "Score +4" }).first();
+  const draw = deck.locator(".card", { hasText: "Spark Draw" }).first();
+  const score = deck.locator(".card", { hasText: "Tap Score" }).first();
 
   // Put two specific cards into Hand in known order: Draw then Score.
   await dragFromTo(page, draw, handDrop, "center");
   await dragFromTo(page, score, handRow, "center");
 
   const titles0 = await hand.locator(".card .card-title").allTextContents();
-  expect(titles0.some((t) => t.includes("Draw 5"))).toBeTruthy();
-  expect(titles0.some((t) => t.includes("Score +4"))).toBeTruthy();
+  expect(titles0.some((t) => t.includes("Spark Draw"))).toBeTruthy();
+  expect(titles0.some((t) => t.includes("Tap Score"))).toBeTruthy();
 
   // Drag Draw onto the RIGHT edge of Score => insert-after, so order becomes Score then Draw.
-  const handDraw = hand.locator(".card", { hasText: "Draw 5" }).first();
-  const handScore = hand.locator(".card", { hasText: "Score +4" }).first();
+  const handDraw = hand.locator(".card", { hasText: "Spark Draw" }).first();
+  const handScore = hand.locator(".card", { hasText: "Tap Score" }).first();
 
   await dragFromTo(page, handDraw, handScore, "right");
 
   const titles1 = await hand.locator(".card .card-title").allTextContents();
-  const idxScore = titles1.findIndex((t) => t.includes("Score +4"));
-  const idxDraw = titles1.findIndex((t) => t.includes("Draw 5"));
+  const idxScore = titles1.findIndex((t) => t.includes("Tap Score"));
+  const idxDraw = titles1.findIndex((t) => t.includes("Spark Draw"));
   expect(idxScore).toBeGreaterThanOrEqual(0);
   expect(idxDraw).toBeGreaterThanOrEqual(0);
   expect(idxScore).toBeLessThan(idxDraw);
 
   await page.screenshot({ path: testInfo.outputPath("01-hand-insert-after.png"), fullPage: true });
 });
-
 

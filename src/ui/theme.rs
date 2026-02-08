@@ -364,7 +364,8 @@ button, input, select {
   position: relative;
   z-index: 1;
   min-height: 0;
-  overflow: hidden;
+  /* Allow FLIP animations to travel between Hand/Deck without being clipped. */
+  overflow-y: visible;
   overflow-x: hidden;
 }
 
@@ -375,6 +376,30 @@ button, input, select {
   pointer-events: none;
   z-index: 20000;
 }
+
+/* Focus halo layer: renders "outside" scroll clipping */
+.focus-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15000;
+}
+
+.focus-halo {
+  position: fixed;
+  border-radius: calc(var(--card-r) + 8px);
+  border: 2px solid rgba(0, 255, 156, 0.38);
+  box-shadow:
+    0 0 0 2px rgba(0, 255, 156, 0.12) inset,
+    0 0 34px rgba(0, 255, 156, 0.22),
+    0 0 110px rgba(0, 200, 255, 0.14);
+  transform: scale(1.06);
+  transform-origin: 50% 50%;
+  opacity: 0.95;
+}
+
+.focus-halo.deck { border-color: rgba(0, 200, 255, 0.38); box-shadow: 0 0 34px rgba(0, 200, 255, 0.20), 0 0 110px rgba(0, 255, 156, 0.12); }
+.focus-halo.hand { border-color: rgba(0, 255, 156, 0.40); }
 
 .app.is-dragging .topbar {
   /* Let dragged cards float over the topbar (stacking contexts are atomic). */
@@ -687,6 +712,8 @@ button, input, select {
   overflow-x: auto;
   overflow-y: hidden;
   scroll-behavior: smooth;
+  /* Space so card glows don't get hard-clipped at edges */
+  padding: 14px 18px;
 }
 
 .right-rail {
@@ -1121,7 +1148,8 @@ button, input, select {
 .row-scroll {
   overflow-x: auto;
   overflow-y: visible;
-  padding: 10px 0;
+  /* Space so card glows / selected-scale have breathing room */
+  padding: 14px 18px;
   scrollbar-gutter: stable both-edges;
   scrollbar-color: rgba(0, 255, 156, 0.35) rgba(0, 0, 0, 0.20);
   /* Prevent layout shift: row never shrinks below viewport */
@@ -1711,5 +1739,625 @@ button, input, select {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
+}
+
+/* === Radical 2026 redesign layer === */
+:root {
+  --bg0: #090b12;
+  --bg1: #0f1422;
+  --panel: rgba(15, 20, 32, 0.86);
+  --panel2: rgba(12, 16, 28, 0.90);
+  --border: rgba(112, 184, 255, 0.22);
+  --border-strong: rgba(64, 233, 255, 0.62);
+  --accent: #40e9ff;
+  --accent2: #ff8f2d;
+  --danger: #ff5f7f;
+  --text: rgba(245, 250, 255, 0.95);
+  --muted: rgba(208, 224, 240, 0.68);
+  --shadow: rgba(0, 0, 0, 0.52);
+  --radius: 22px;
+  --radius-sm: 14px;
+  --card-r: 20px;
+  --card-w: clamp(158px, 16.4vw, 202px);
+  --card-h: clamp(236px, 30vh, 336px);
+}
+
+body {
+  font-family: "Avenir Next", "Futura", "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1300px 900px at 10% -5%, rgba(64, 233, 255, 0.16), transparent 60%),
+    radial-gradient(1100px 760px at 88% 8%, rgba(255, 143, 45, 0.12), transparent 62%),
+    radial-gradient(900px 620px at 50% 120%, rgba(255, 95, 127, 0.10), transparent 64%),
+    linear-gradient(165deg, #090b12 0%, #0c1220 38%, #14182a 100%);
+}
+
+.app {
+  grid-template-columns: 324px 1fr;
+}
+
+.app::before {
+  opacity: 0.08;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.05), transparent 35%),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.025),
+      rgba(255, 255, 255, 0.025) 1px,
+      rgba(0, 0, 0, 0.0) 2px,
+      rgba(0, 0, 0, 0.0) 5px
+    );
+}
+
+.app::after {
+  opacity: 0.74;
+  background:
+    radial-gradient(1200px 900px at 50% 50%, rgba(64, 233, 255, 0.04), transparent 60%),
+    linear-gradient(120deg, rgba(255, 143, 45, 0.05), transparent 24%);
+}
+
+.sidebar {
+  padding: 18px 14px;
+  border-right: 1px solid rgba(92, 166, 255, 0.26);
+  background:
+    radial-gradient(360px 280px at 20% 2%, rgba(64, 233, 255, 0.14), transparent 62%),
+    linear-gradient(180deg, rgba(12, 16, 28, 0.96), rgba(9, 12, 22, 0.92));
+  box-shadow: 24px 0 60px rgba(0, 0, 0, 0.22);
+}
+
+.brand-title {
+  font-size: 22px;
+  letter-spacing: 1px;
+  font-weight: 900;
+  text-transform: uppercase;
+  text-shadow: 0 0 22px rgba(64, 233, 255, 0.26);
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: rgba(208, 224, 240, 0.70);
+  letter-spacing: 0.28px;
+}
+
+.panel {
+  border-radius: var(--radius);
+  border: 1px solid rgba(120, 180, 255, 0.20);
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.04), transparent 45%),
+    var(--panel);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.40),
+    0 0 0 1px rgba(64, 233, 255, 0.06) inset;
+}
+
+.tabs {
+  gap: 8px;
+}
+
+.tab {
+  border-color: rgba(120, 180, 255, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.22));
+  color: rgba(208, 224, 240, 0.78);
+  font-weight: 700;
+  letter-spacing: 0.24px;
+}
+
+.tab.active {
+  border-color: rgba(64, 233, 255, 0.66);
+  background: linear-gradient(180deg, rgba(64, 233, 255, 0.20), rgba(0, 0, 0, 0.20));
+  color: rgba(245, 250, 255, 0.96);
+  box-shadow: 0 0 24px rgba(64, 233, 255, 0.18);
+}
+
+.btn {
+  border-color: rgba(120, 180, 255, 0.34);
+  background: linear-gradient(180deg, rgba(64, 233, 255, 0.14), rgba(0, 0, 0, 0.24));
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.btn.secondary {
+  border-color: rgba(255, 143, 45, 0.38);
+  background: linear-gradient(180deg, rgba(255, 143, 45, 0.14), rgba(0, 0, 0, 0.24));
+}
+
+.main {
+  padding: 18px;
+  gap: 12px;
+}
+
+.topbar {
+  grid-template-columns: minmax(360px, 430px) 1fr 252px;
+  gap: 12px;
+}
+
+.run-pane {
+  border: 1px solid rgba(120, 180, 255, 0.24);
+  background:
+    radial-gradient(320px 220px at 14% 12%, rgba(64, 233, 255, 0.16), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.22));
+}
+
+.play-btn {
+  border-color: rgba(64, 233, 255, 0.50);
+  border-radius: 16px;
+  background:
+    radial-gradient(220px 120px at 16% 10%, rgba(64, 233, 255, 0.20), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.26));
+}
+
+.play-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(64, 233, 255, 0.72);
+}
+
+.shop-btn {
+  border-color: rgba(255, 143, 45, 0.46);
+  background:
+    radial-gradient(220px 120px at 18% 12%, rgba(255, 143, 45, 0.19), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.26));
+}
+
+.shop-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 143, 45, 0.72);
+}
+
+.play-text {
+  letter-spacing: 0.8px;
+  font-weight: 800;
+}
+
+.run-strip {
+  border-color: rgba(120, 180, 255, 0.22);
+  background: rgba(7, 10, 18, 0.52);
+}
+
+.strip-item + .strip-item {
+  border-left: 1px solid rgba(120, 180, 255, 0.16);
+}
+
+.strip-k {
+  color: rgba(208, 224, 240, 0.64);
+}
+
+.strip-v {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.run-progress {
+  border-color: rgba(120, 180, 255, 0.24);
+}
+
+.run-progress-fill {
+  background: linear-gradient(90deg, rgba(64, 233, 255, 0.62), rgba(255, 143, 45, 0.56), rgba(255, 95, 127, 0.60));
+  box-shadow: 0 0 20px rgba(64, 233, 255, 0.20);
+}
+
+.content {
+  gap: 12px;
+}
+
+.handbar,
+.deckbar {
+  border-radius: 20px;
+  border: 1px solid rgba(120, 180, 255, 0.20);
+  background:
+    radial-gradient(280px 160px at 12% 0%, rgba(64, 233, 255, 0.12), transparent 62%),
+    linear-gradient(170deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.24));
+}
+
+.hand-title {
+  font-size: 13px;
+  letter-spacing: 0.7px;
+  font-weight: 900;
+}
+
+.pile-widget {
+  border-radius: 20px;
+  border-color: rgba(255, 143, 45, 0.26);
+  background:
+    radial-gradient(260px 180px at 70% 8%, rgba(255, 143, 45, 0.14), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.24));
+}
+
+.deck-widget {
+  border-radius: 20px;
+  border-color: rgba(64, 233, 255, 0.30);
+}
+
+.card {
+  border-radius: var(--card-r);
+  border: 1px solid rgba(130, 190, 255, 0.26);
+  background:
+    radial-gradient(220px 140px at 18% 14%, rgba(64, 233, 255, 0.16), transparent 60%),
+    radial-gradient(220px 140px at 84% 18%, rgba(255, 143, 45, 0.15), transparent 62%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(8, 12, 22, 0.88));
+  box-shadow:
+    0 24px 54px rgba(0, 0, 0, 0.52),
+    0 0 0 1px rgba(120, 180, 255, 0.05) inset;
+}
+
+.card::before {
+  opacity: 0.62;
+  background:
+    radial-gradient(circle at 22% 30%, rgba(255, 255, 255, 0.18), transparent 62%),
+    radial-gradient(circle at 78% 10%, rgba(64, 233, 255, 0.15), transparent 55%);
+}
+
+.card:hover {
+  transform: translateY(-8px) rotate(-0.55deg);
+  border-color: rgba(64, 233, 255, 0.72);
+  box-shadow:
+    0 28px 64px rgba(0, 0, 0, 0.58),
+    0 0 36px rgba(64, 233, 255, 0.16),
+    0 0 70px rgba(255, 143, 45, 0.10);
+}
+
+.card-top {
+  top: 9px;
+  left: 9px;
+  right: 9px;
+}
+
+.card-top-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.card-index {
+  padding: 4px 8px;
+  border-color: rgba(130, 190, 255, 0.28);
+  background: rgba(7, 11, 20, 0.54);
+  font-weight: 700;
+}
+
+.card-kind-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(130, 190, 255, 0.28);
+  background: rgba(7, 11, 20, 0.56);
+  color: rgba(232, 244, 255, 0.90);
+  min-width: 0;
+}
+
+.kind-glyph {
+  font-size: 11px;
+}
+
+.kind-name {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.card-docs {
+  border-color: rgba(130, 190, 255, 0.28);
+  background: rgba(7, 11, 20, 0.56);
+}
+
+.card-art {
+  margin: 48px 10px 0;
+  height: calc(var(--card-h) * 0.29);
+  border-radius: 16px;
+  border: 1px solid rgba(130, 190, 255, 0.26);
+  background:
+    radial-gradient(120px 80px at 22% 34%, rgba(64, 233, 255, 0.24), transparent 62%),
+    radial-gradient(130px 90px at 80% 20%, rgba(255, 143, 45, 0.20), transparent 60%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(8, 10, 18, 0.72));
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  justify-items: center;
+  padding: 8px;
+  gap: 8px;
+}
+
+.card-main-icon {
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: 1px;
+  color: rgba(245, 250, 255, 0.94);
+  text-shadow: 0 0 28px rgba(64, 233, 255, 0.34), 0 0 42px rgba(255, 143, 45, 0.18);
+}
+
+.card-fx-ribbon {
+  width: 100%;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.fx-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(130, 190, 255, 0.30);
+  background: rgba(8, 12, 22, 0.68);
+  padding: 3px 6px;
+  font-size: 10px;
+  color: rgba(238, 247, 255, 0.92);
+}
+
+.fx-glyph {
+  line-height: 1;
+}
+
+.fx-short {
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+
+.fx-score {
+  border-color: rgba(255, 193, 77, 0.58);
+}
+
+.fx-economy {
+  border-color: rgba(97, 231, 201, 0.56);
+}
+
+.fx-control {
+  border-color: rgba(64, 233, 255, 0.58);
+}
+
+.fx-meta {
+  border-color: rgba(255, 122, 193, 0.58);
+}
+
+.fx-more,
+.fx-unknown {
+  border-color: rgba(208, 224, 240, 0.32);
+}
+
+.card-body {
+  padding: 8px 11px 12px;
+}
+
+.card-title {
+  font-size: 13px;
+  letter-spacing: 0.7px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.card-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.22px;
+}
+
+.card-script {
+  margin-top: 8px;
+  border-radius: 12px;
+  border-color: rgba(130, 190, 255, 0.20);
+  background: rgba(7, 11, 20, 0.58);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.card-fx-row {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.card-fx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(130, 190, 255, 0.30);
+  background: rgba(8, 12, 22, 0.62);
+  padding: 4px 7px;
+  font-size: 10px;
+  color: rgba(236, 246, 255, 0.92);
+}
+
+.chip-icon {
+  line-height: 1;
+}
+
+.chip-label {
+  text-transform: uppercase;
+  letter-spacing: 0.42px;
+  font-weight: 800;
+}
+
+.card-actions {
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  gap: 7px;
+}
+
+.card-btn {
+  border-color: rgba(130, 190, 255, 0.28);
+  background: rgba(8, 12, 22, 0.56);
+  font-weight: 800;
+}
+
+.card-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(64, 233, 255, 0.66);
+}
+
+.card.kind-score {
+  border-color: rgba(255, 193, 77, 0.54);
+}
+
+.card.kind-economy {
+  border-color: rgba(97, 231, 201, 0.52);
+}
+
+.card.kind-control {
+  border-color: rgba(64, 233, 255, 0.52);
+}
+
+.card.kind-meta {
+  border-color: rgba(255, 122, 193, 0.52);
+}
+
+.modal {
+  border-color: rgba(120, 180, 255, 0.30);
+  background:
+    radial-gradient(400px 220px at 20% 0%, rgba(64, 233, 255, 0.12), transparent 62%),
+    rgba(10, 14, 24, 0.96);
+}
+
+.kcard {
+  border-color: rgba(130, 190, 255, 0.22);
+}
+
+.kcard-head {
+  grid-template-columns: 44px 1fr 220px;
+}
+
+.kcard-signals {
+  padding: 10px 12px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kcard-kind,
+.kcard-fx {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(130, 190, 255, 0.28);
+  background: rgba(8, 12, 22, 0.54);
+  padding: 4px 8px;
+  font-size: 10px;
+  color: rgba(232, 244, 255, 0.90);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 800;
+}
+
+.kcard-fx-icon,
+.kcard-kind-icon {
+  line-height: 1;
+}
+
+.puzzle-hint-hero {
+  margin-top: 10px;
+  min-height: clamp(180px, 31vh, 340px);
+  border-radius: 22px;
+  border: 2px solid rgba(64, 233, 255, 0.58);
+  background:
+    radial-gradient(280px 170px at 16% 10%, rgba(64, 233, 255, 0.24), transparent 64%),
+    radial-gradient(240px 160px at 86% 16%, rgba(255, 143, 45, 0.22), transparent 62%),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.08), rgba(7, 12, 24, 0.84));
+  clip-path: polygon(0 6%, 8% 0, 92% 0, 100% 7%, 100% 93%, 92% 100%, 8% 100%, 0 94%);
+  box-shadow:
+    0 24px 56px rgba(0, 0, 0, 0.46),
+    0 0 34px rgba(64, 233, 255, 0.20),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  padding: 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.puzzle-hint-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.00), rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.00));
+  transform: translateX(-120%);
+  animation: puzzleHintSweep 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.puzzle-hint-kicker {
+  font-size: 14px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(255, 143, 45, 0.96);
+  text-shadow: 0 0 16px rgba(255, 143, 45, 0.32);
+}
+
+.puzzle-hint-text {
+  margin: 0;
+  font-size: clamp(18px, 1.72vw, 24px);
+  line-height: 1.34;
+  letter-spacing: 0.24px;
+  font-weight: 750;
+  color: rgba(247, 251, 255, 0.98);
+  text-wrap: pretty;
+  text-shadow: 0 0 24px rgba(64, 233, 255, 0.18);
+}
+
+.puzzle-message-banner {
+  margin-top: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(120, 180, 255, 0.34);
+  background: rgba(8, 13, 23, 0.72);
+  color: rgba(235, 246, 255, 0.92);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+@keyframes puzzleHintSweep {
+  0% { transform: translateX(-120%); opacity: 0; }
+  16% { opacity: 0.24; }
+  54% { opacity: 0.20; }
+  100% { transform: translateX(120%); opacity: 0; }
+}
+
+@media (max-width: 1100px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    max-height: 42vh;
+    overflow: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(120, 180, 255, 0.26);
+  }
+
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .deck-widget {
+    width: 100%;
+  }
+
+  .handrow {
+    flex-direction: column;
+  }
+
+  .pile-widget {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
+  .puzzle-hint-hero {
+    min-height: clamp(132px, 23vh, 240px);
+  }
+
+  .puzzle-hint-text {
+    font-size: clamp(16px, 4.4vw, 21px);
+  }
 }
 "#;

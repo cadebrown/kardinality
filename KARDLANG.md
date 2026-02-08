@@ -1,81 +1,100 @@
 ## Kardlang
 
-Kardlang is the tiny “cards-as-code” language inside **Kardinality**. It’s designed for a gamejam reality: **simple to read**, **cheap to parse**, and **easy to balance**.
+Kardlang is the tiny cards-as-code language inside **Kardinality**.
 
 ### Philosophy
 
-* **Character budgets are the balance lever**: every card has a strict budget. If you want more power, you spend more characters.
-* **Big constants are intentionally expensive**: digits cost their numeric value, so typing `9` is “9 chars worth of power”. Unary numbers (`111`) are always available but still cost length.
-* **Arithmetic is minimal**: only `+` and `*` exist inside expressions. No subtraction, division, exponentiation, or function composition.
-* **No nested calls (for now)**: you can’t write `score(sqr(len_hand))`. A call’s arguments are **expressions**, not other calls.
-* **Everything is an integer**: makes the VM deterministic, fast, and easier to reason about.
+* Card power is budgeted by script length.
+* Every character matters.
+* Digits are intentionally expensive to discourage brute-force constants.
+* Programs stay deterministic and integer-only.
 
-### The “effective length” cost model
+### Effective Length Cost
 
-Kardlang budgets are enforced using an **effective length**, not raw character count:
+Budgets are checked against **effective length**:
 
-* Normal characters cost **1**
-* Digit characters cost **their value**
-  * `0` costs **1**
-  * `4` costs **4**
-  * `9` costs **9**
+* Most characters cost `1`.
+* Digits cost their numeric value.
+* `0` still costs `1`.
 
-This prevents “type 999999” strategies and pushes players toward **state-derived values** and **sequencing** instead of raw constants.
+Examples:
 
-### Core syntax (v0)
+* `s(11)` costs `5` (`s`,`(`,`1`,`1`,`)`)
+* `s(9)` costs `12` because `9` costs `9`
 
-* Programs are a sequence of calls:
+### Core Syntax
+
+Programs are call sequences:
 
 ```text
-score(4)
-bank(6)
-dbl()
+s(11); b(11); d(1)
 ```
 
-* Calls can be separated by whitespace and/or `;`.
+* Calls are separated by whitespace and/or `;`.
 * Arguments are integer expressions using:
-  * **numbers** (unary `111` or digit shorthand `4`)
-  * **register identifiers** (e.g. `len_deck`)
-  * **operators** `+` and `*`
-  * **parentheses** for grouping
+* numbers (`111` or `4`)
+* identifiers (`len_deck` or short aliases like `D`)
+* `+`, `*`, and parentheses
 
 ### Grammar
 
-The codebase ships aimage.png canonical grammar string in `src/kardlang/grammar.rs`. (The Kardinomicon shows it in-game.)
+The canonical grammar string is in `src/kardlang/grammar.rs`.
 
 ### Registers
 
-Registers are named reads of game state. They are intentionally verbose (referencing state costs characters).
+Long and short forms are both supported:
 
-Current registers include:
-
-* `len_deck` / `len_pool` / `len_collection`
-* `len_hand`
-* `len_source` / `len_draw`
-* `len_discard`
-* `score`
-* `bankroll`
-* `level`
-* `target`
-* `max_steps` / `max_step`
-* `max_loop_iters` / `max_loop`
+* `len_deck` / `len_pool` / `len_collection` / `D`
+* `len_hand` / `H`
+* `len_source` / `len_draw` / `S`
+* `len_pile` / `len_discard` / `P`
+* `level` / `lvl` / `L`
+* `target` / `T`
+* `score` / `Q`
+* `bankroll` / `money` / `B`
+* writable accumulator: `acc` / `A`
+* safety registers: `max_steps`, `max_step`, `max_loop_iters`, `max_loop`
 
 ### Functions
 
-These are the “opcodes” of Kardlang. A card is basically a (budgeted) program made of these calls.
+All core ops have long + short forms:
 
-* `draw(n)`: generate/draw `n` new cards into your Deck (bounded in the engine)
-* `score(n)`: add `n` to score
-* `bank(n)`: add `n` to bankroll
-* `dbl()`: multiply bankroll by 2
+* `score(n)` / `s(n)`: add score
+* `bank(n)` / `b(n)`: add bankroll
+* `dbl()` / `x()`: multiply bankroll by 2
+* `draw(n)` / `d(n)`: draw cards into Deck
+* `tri(n)` / `t(n)`: set `A = n*(n+1)/2`
+* `fibo(n)` / `f(n)`: set `A = F(n)`
+* `clone(n)` / `c(n)`: queue copies of last played card
+* `again(n)` / `a(n)`: replay last played card
+* `mutate()` / `m()`: mutate last played card
 
-### Safety limits
+Combo ops:
+
+* `jam(n)` / `j(n)`: `score += n` and draw `1`
+* `mint(n)` / `i(n)`: `bankroll += n` and draw `1`
+* `cash(n)` / `v(n)`: `score += n`, `bankroll -= n`
+* `hedge(n)` / `h(n)`: add score if below target, else add bankroll
+* `wild(n)` / `w(n)`: mutate then replay `n`
+
+### Safety Limits
 
 Execution is always bounded:
 
-* `max_steps`: caps how many calls can be evaluated in one execution
-* `max_loop_iters`: reserved for future control-flow cards
+* `max_steps`: cap on evaluated calls per execution
+* `max_loop_iters`: reserved for future control-flow extensions
 
-If a limit is exceeded, execution aborts cleanly and the UI shows it in the trace/debug panel.
+On limit hit, execution aborts cleanly and emits a trace error.
 
+### Tutorial Puzzles
 
+Use **Controls → Puzzles / Tutorials** in the UI to launch curated hand/deck scenarios.
+
+Each puzzle includes:
+
+* A fixed opening setup
+* A play limit
+* A hint
+* A clear goal (score target, sometimes bankroll target)
+
+This doubles as both tutorial flow and regression coverage for core combo patterns.

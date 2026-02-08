@@ -43,11 +43,22 @@ pub fn ScoreBankBody(bankroll: i64, score: i64, target: i64) -> Element {
 }
 
 #[component]
-pub fn RegistersBody(collection_count: usize, hand_count: usize) -> Element {
+pub fn RegistersBody(
+    collection_count: usize,
+    hand_count: usize,
+    source_count: usize,
+    pile_count: usize,
+    acc: i64,
+    level: u32,
+) -> Element {
     rsx! {
         h2 { class: "hud-title", "Registers" }
-        div { class: "kv", span { "len_deck" } code { "{collection_count}" } }
-        div { class: "kv", span { "len_hand" } code { "{hand_count}" } }
+        div { class: "kv", span { "len_deck (D)" } code { "{collection_count}" } }
+        div { class: "kv", span { "len_hand (H)" } code { "{hand_count}" } }
+        div { class: "kv", span { "len_source (S)" } code { "{source_count}" } }
+        div { class: "kv", span { "len_pile (P)" } code { "{pile_count}" } }
+        div { class: "kv", span { "acc (A)" } code { "{acc}" } }
+        div { class: "kv", span { "level (L)" } code { "{level}" } }
     }
 }
 
@@ -58,6 +69,9 @@ pub fn TopHud(
     target: i64,
     collection_count: usize,
     hand_count: usize,
+    source_count: usize,
+    pile_count: usize,
+    acc: i64,
     level: u32,
 ) -> Element {
     rsx! {
@@ -66,7 +80,7 @@ pub fn TopHud(
         }
 
         div { class: "panel hud-panel",
-            RegistersBody { collection_count, hand_count }
+            RegistersBody { collection_count, hand_count, source_count, pile_count, acc, level }
         }
     }
 }

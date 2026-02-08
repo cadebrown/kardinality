@@ -1,6 +1,5 @@
-use rand::SeedableRng;
-use rand::prelude::IndexedRandom;
 use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use thiserror::Error;
 
@@ -9,11 +8,12 @@ use std::collections::VecDeque;
 use crate::kardlang::{effective_len, parse_program};
 use crate::vm::{Effect, Limits, Machine, VmContext, VmError};
 
-use crate::game::{CardInstance, GameState, Phase, TraceEvent, cards};
+use crate::game::{CardInstance, GameState, Phase, RunMode, TraceEvent, cards, puzzles};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     NewRun { seed: u64 },
+    StartPuzzle { id: String },
     DrawToCollection { count: usize },
     MoveCollectionToHand { index: usize },
     MoveHandToCollection { index: usize },
@@ -36,6 +36,9 @@ pub enum GameError {
     #[error("unknown card definition id: {0}")]
     UnknownCardDef(String),
 
+    #[error("unknown puzzle id: {0}")]
+    UnknownPuzzle(String),
+
     #[error("card script cost {cost} exceeds budget {budget}: {name}")]
     CardOverBudget {
         name: String,
@@ -56,17 +59,16 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(seed: u64) -> Self {
-        // Draw pile ("source") is a shuffled pool of all known cards (with repeats).
+        // Draw pile ("source") is generated from weighted level-aware rules.
         let mut draw_pile: Vec<CardInstance> = Vec::new();
         let mut next_id: u64 = 1;
-        for _ in 0..4 {
-            for def in cards::catalog() {
-                draw_pile.push(CardInstance::new(next_id, def.id));
-                next_id += 1;
-            }
+        for def_id in cards::generate_source_ids(seed, 1) {
+            draw_pile.push(CardInstance::new(next_id, def_id));
+            next_id += 1;
         }
 
         let mut engine = Self::with_deck(seed, draw_pile, Limits::default());
+        engine.state.target_score = target_for_level(engine.state.level);
 
         // Player starts with a small starter deck.
         engine.state.collection = cards::starter_deck_ids()
@@ -103,6 +105,7 @@ impl Engine {
                 *self = Self::new(seed);
                 Ok(())
             }
+            Action::StartPuzzle { id } => self.start_puzzle(&id),
             Action::DrawToCollection { count } => self.draw_to_collection(count),
             Action::MoveCollectionToHand { index } => {
                 if let Some(card) = take_at(&mut self.state.collection, index) {
@@ -180,10 +183,89 @@ impl Engine {
         Ok(self.state.deck.pop())
     }
 
+    fn start_puzzle(&mut self, id: &str) -> Result<(), GameError> {
+        let puzzle = puzzles::get(id).ok_or_else(|| GameError::UnknownPuzzle(id.to_string()))?;
+
+        for card_id in puzzle
+            .source_ids
+            .iter()
+            .chain(puzzle.collection_ids.iter())
+            .chain(puzzle.hand_ids.iter())
+        {
+            if cards::get(card_id).is_none() {
+                return Err(GameError::UnknownCardDef((*card_id).to_string()));
+            }
+        }
+
+        let seed = stable_seed_from_id(puzzle.id);
+        let source = puzzle
+            .source_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| CardInstance::new((i + 1) as u64, *id))
+            .collect::<Vec<_>>();
+
+        let mut next = Self::with_deck(seed, source, self.state.limits);
+        next.state.mode = RunMode::Puzzle;
+        next.state.level = puzzle.start_level.max(1);
+        next.state.bankroll = puzzle.start_bankroll;
+        next.state.score = puzzle.start_score;
+        next.state.acc = 0;
+        next.state.target_score = puzzle.target_score.max(1);
+        next.state.phase = Phase::InLevel;
+        next.state.turn = 0;
+        next.state.puzzle_id = Some(puzzle.id.to_string());
+        next.state.puzzle_title = Some(puzzle.name.to_string());
+        next.state.puzzle_blurb = Some(puzzle.blurb.to_string());
+        next.state.puzzle_hint = Some(puzzle.hint.to_string());
+        next.state.puzzle_theme = Some(puzzle.theme.to_string());
+        next.state.puzzle_play_limit = puzzle.play_limit;
+        next.state.puzzle_bankroll_goal = puzzle.goal_bankroll;
+        next.state.puzzle_solved = false;
+        next.state.puzzle_failed = false;
+        next.state.puzzle_message = Some(format!("{}: {}", puzzle.name, puzzle.blurb));
+
+        next.state.collection = puzzle
+            .collection_ids
+            .iter()
+            .map(|id| next.new_card(*id))
+            .collect();
+        next.state.hand = puzzle
+            .hand_ids
+            .iter()
+            .map(|id| next.new_card(*id))
+            .collect();
+
+        next.state
+            .trace
+            .push(TraceEvent::Info(format!("Puzzle loaded: {}", puzzle.name)));
+        next.state
+            .trace
+            .push(TraceEvent::Info(format!("Hint: {}", puzzle.hint)));
+        next.state.trace.push(TraceEvent::Info(format!(
+            "Goal: score >= {}{}",
+            next.state.target_score,
+            next.state
+                .puzzle_bankroll_goal
+                .map(|g| format!(", bankroll >= {g}"))
+                .unwrap_or_default()
+        )));
+        if let Some(limit) = next.state.puzzle_play_limit {
+            next.state
+                .trace
+                .push(TraceEvent::Info(format!("Play limit: {limit}")));
+        }
+
+        *self = next;
+        Ok(())
+    }
+
     fn play_hand(&mut self) -> Result<(), GameError> {
         if self.state.phase != Phase::InLevel {
             return Ok(());
         }
+
+        self.state.turn = self.state.turn.saturating_add(1);
 
         let mut vm = Machine::new(self.state.limits);
 
@@ -265,13 +347,10 @@ impl Engine {
             self.state.trace.push(TraceEvent::EffectApplied { effect });
         }
 
-        if self.state.score >= self.state.target_score {
-            self.state.level += 1;
-            self.state.target_score += 10;
-            self.state.trace.push(TraceEvent::Info(format!(
-                "Level cleared! Next target: {}",
-                self.state.target_score
-            )));
+        if self.state.mode == RunMode::Puzzle {
+            self.update_puzzle_outcome();
+        } else if self.state.score >= self.state.target_score {
+            self.advance_classic_level();
         }
 
         Ok(())
@@ -342,9 +421,10 @@ impl Engine {
                     return;
                 };
 
-                if let Some(new_def) = cards::catalog().choose(&mut self.rng) {
+                if let Some(new_id) = cards::roll_card_id_for_level(&mut self.rng, self.state.level)
+                {
                     let old = target.def_id.clone();
-                    target.def_id = new_def.id.to_string();
+                    target.def_id = new_id.to_string();
                     self.state.trace.push(TraceEvent::Info(format!(
                         "mutate: {} → {}",
                         old, target.def_id
@@ -352,6 +432,83 @@ impl Engine {
                 }
             }
         }
+    }
+
+    fn advance_classic_level(&mut self) {
+        let previous_level = self.state.level;
+        self.state.level = self.state.level.saturating_add(1);
+        self.state.target_score = target_for_level(self.state.level);
+
+        // Add a small "booster" of newly generated cards every clear.
+        let mut generated = 0usize;
+        let booster = cards::generate_source_ids_with_count(
+            self.rng.random::<u64>(),
+            self.state.level,
+            booster_count_for_level(self.state.level),
+        );
+        for id in booster {
+            let card = self.new_card(id);
+            self.state.deck.push(card);
+            generated += 1;
+        }
+        self.state.deck.shuffle(&mut self.rng);
+
+        self.state.trace.push(TraceEvent::Info(format!(
+            "Level {previous_level} cleared! Next target: {} (+{generated} source cards)",
+            self.state.target_score
+        )));
+    }
+
+    fn update_puzzle_outcome(&mut self) {
+        let score_ok = self.state.score >= self.state.target_score;
+        let bankroll_ok = self
+            .state
+            .puzzle_bankroll_goal
+            .is_none_or(|goal| self.state.bankroll >= goal);
+
+        if score_ok && bankroll_ok {
+            if !self.state.puzzle_solved {
+                self.state.puzzle_solved = true;
+                self.state.phase = Phase::Reward;
+                let msg = format!(
+                    "Puzzle solved in {} play(s). Great sequencing.",
+                    self.state.turn
+                );
+                self.state.puzzle_message = Some(msg.clone());
+                self.state.trace.push(TraceEvent::Info(msg));
+            }
+            return;
+        }
+
+        if let Some(limit) = self.state.puzzle_play_limit
+            && self.state.turn >= limit
+            && !self.state.puzzle_failed
+        {
+            self.state.puzzle_failed = true;
+            self.state.phase = Phase::GameOver;
+            let hint = self
+                .state
+                .puzzle_hint
+                .as_deref()
+                .unwrap_or("Try a different sequence.");
+            let msg = format!("Puzzle failed: out of plays ({limit}). Hint: {hint}");
+            self.state.puzzle_message = Some(msg.clone());
+            self.state.trace.push(TraceEvent::Info(msg));
+            return;
+        }
+
+        let mut status = format!(
+            "Puzzle progress: score {}/{}",
+            self.state.score, self.state.target_score
+        );
+        if let Some(goal) = self.state.puzzle_bankroll_goal {
+            status.push_str(&format!(", bankroll {}/{}", self.state.bankroll, goal));
+        }
+        if let Some(limit) = self.state.puzzle_play_limit {
+            let left = limit.saturating_sub(self.state.turn);
+            status.push_str(&format!(", plays left {left}"));
+        }
+        self.state.puzzle_message = Some(status);
     }
 }
 
@@ -413,6 +570,31 @@ fn swap_within<T>(v: &mut Vec<T>, a: usize, b: usize) {
     v.swap(a, b);
 }
 
+fn target_for_level(level: u32) -> i64 {
+    let level = level.max(1) as i64;
+    let base = 10i64;
+    let linear = level.saturating_sub(1).saturating_mul(12);
+    let curve = level
+        .saturating_sub(1)
+        .saturating_mul(level.saturating_sub(2))
+        .saturating_mul(2);
+    base.saturating_add(linear).saturating_add(curve)
+}
+
+fn booster_count_for_level(level: u32) -> usize {
+    (3 + (level.max(1) as usize / 2)).min(8)
+}
+
+fn stable_seed_from_id(id: &str) -> u64 {
+    // Stable FNV-1a hash so puzzle seeds are reproducible across targets.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    h
+}
+
 struct GameCtx<'a> {
     state: &'a GameState,
 }
@@ -423,17 +605,19 @@ impl VmContext for GameCtx<'_> {
             // Terminology:
             // - "deck" is the player's owned deck (selection pool)
             // - "source" is the generator/draw pile we pull new cards from
-            "len_deck" | "len_pool" | "len_collection" => Some(self.state.collection.len() as i64),
-            "len_source" | "len_draw" => Some(self.state.deck.len() as i64),
-            "len_hand" => Some(self.state.hand.len() as i64),
-            "len_pile" | "len_discard" => Some(self.state.pile.len() as i64),
+            "len_deck" | "len_pool" | "len_collection" | "D" => {
+                Some(self.state.collection.len() as i64)
+            }
+            "len_source" | "len_draw" | "S" => Some(self.state.deck.len() as i64),
+            "len_hand" | "H" => Some(self.state.hand.len() as i64),
+            "len_pile" | "len_discard" | "P" => Some(self.state.pile.len() as i64),
             "deck" => Some(self.state.collection.len() as i64),
             "hand" => Some(self.state.hand.len() as i64),
-            "lvl" => Some(self.state.level as i64),
-            "acc" => Some(self.state.acc),
-            "bankroll" => Some(self.state.bankroll),
-            "level" => Some(self.state.level as i64),
-            "target" => Some(self.state.target_score),
+            "lvl" | "level" | "L" => Some(self.state.level as i64),
+            "acc" | "A" => Some(self.state.acc),
+            "bankroll" | "money" | "B" => Some(self.state.bankroll),
+            "score" | "Q" => Some(self.state.score),
+            "target" | "T" => Some(self.state.target_score),
             "max_step" | "max_steps" => Some(self.state.limits.max_steps as i64),
             "max_loop" | "max_loop_iters" => Some(self.state.limits.max_loop_iters as i64),
             _ => None,
@@ -463,7 +647,7 @@ mod tests {
 
     #[test]
     fn draw_then_play_applies_effects_and_moves_cards_to_pile() {
-        let deck = vec![CardInstance::new(1, "score_2")];
+        let deck = vec![CardInstance::new(1, "tap_score")];
         let mut engine = Engine::with_deck(123, deck, Limits::default());
 
         engine
@@ -498,5 +682,168 @@ mod tests {
                 c.def_id
             );
         }
+    }
+
+    #[test]
+    fn jam_two_adds_score_and_draws_once() {
+        let deck = vec![CardInstance::new(1, "tap_bank")];
+        let mut engine = Engine::with_deck(1, deck, Limits::default());
+        engine.state.hand = vec![CardInstance::new(99, "jam_two")];
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert_eq!(engine.state.score, 2);
+        assert_eq!(engine.state.collection.len(), 1);
+        assert_eq!(engine.state.pile.len(), 1);
+    }
+
+    #[test]
+    fn clone_one_replays_the_previous_card() {
+        let mut engine = Engine::with_deck(2, Vec::new(), Limits::default());
+        engine.state.hand = vec![
+            CardInstance::new(1, "tap_score"),
+            CardInstance::new(2, "clone_one"),
+        ];
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        let replayed_score_cards = engine
+            .state
+            .pile
+            .iter()
+            .filter(|c| c.def_id == "tap_score")
+            .count();
+        assert_eq!(engine.state.score, 4);
+        assert_eq!(replayed_score_cards, 2);
+    }
+
+    #[test]
+    fn cash_two_converts_bankroll_into_score() {
+        let mut engine = Engine::with_deck(3, Vec::new(), Limits::default());
+        engine.state.hand = vec![CardInstance::new(1, "cash_two")];
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert_eq!(engine.state.score, 2);
+        assert_eq!(engine.state.bankroll, 8);
+    }
+
+    #[test]
+    fn clearing_a_level_scales_target_and_generates_more_source_cards() {
+        let mut engine = Engine::with_deck(4, Vec::new(), Limits::default());
+        engine.state.score = engine.state.target_score;
+        engine.state.hand = vec![CardInstance::new(1, "tap_bank")];
+        engine.state.mode = RunMode::Classic;
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert_eq!(engine.state.level, 2);
+        assert_eq!(engine.state.target_score, target_for_level(2));
+        assert!(
+            engine.state.deck.len() >= booster_count_for_level(2),
+            "expected level clear to generate booster cards"
+        );
+    }
+
+    #[test]
+    fn start_puzzle_sets_mode_hint_and_goal_state() {
+        let mut engine = Engine::new(0);
+        engine
+            .dispatch(Action::StartPuzzle {
+                id: "lesson_score_ping".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(engine.state.mode, RunMode::Puzzle);
+        assert_eq!(engine.state.target_score, 2);
+        assert_eq!(engine.state.turn, 0);
+        assert_eq!(engine.state.phase, Phase::InLevel);
+        assert_eq!(engine.state.puzzle_id.as_deref(), Some("lesson_score_ping"));
+        assert_eq!(engine.state.hand.len(), 1);
+        assert!(engine.state.puzzle_hint.is_some());
+    }
+
+    #[test]
+    fn puzzle_can_be_solved_in_one_play() {
+        let mut engine = Engine::new(0);
+        engine
+            .dispatch(Action::StartPuzzle {
+                id: "lesson_meta_clone".to_string(),
+            })
+            .unwrap();
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert!(engine.state.puzzle_solved);
+        assert!(!engine.state.puzzle_failed);
+        assert_eq!(engine.state.phase, Phase::Reward);
+        assert_eq!(engine.state.score, 6);
+    }
+
+    #[test]
+    fn puzzle_fail_state_triggers_when_limit_is_spent() {
+        let mut engine = Engine::new(0);
+        engine
+            .dispatch(Action::StartPuzzle {
+                id: "lesson_score_ping".to_string(),
+            })
+            .unwrap();
+
+        // Empty hand means no scoring this turn, so a 1-turn puzzle should fail.
+        engine.state.hand.clear();
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert!(engine.state.puzzle_failed);
+        assert!(!engine.state.puzzle_solved);
+        assert_eq!(engine.state.phase, Phase::GameOver);
+        assert!(
+            engine
+                .state
+                .puzzle_message
+                .as_deref()
+                .is_some_and(|m| m.contains("out of plays"))
+        );
+    }
+
+    #[test]
+    fn unknown_puzzle_id_returns_error() {
+        let mut engine = Engine::new(0);
+        let err = engine
+            .dispatch(Action::StartPuzzle {
+                id: "nope".to_string(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, GameError::UnknownPuzzle(_)));
+    }
+
+    #[test]
+    fn puzzle_money_loop_hits_score_and_bankroll_goals() {
+        let mut engine = Engine::new(0);
+        engine
+            .dispatch(Action::StartPuzzle {
+                id: "lesson_money_loop".to_string(),
+            })
+            .unwrap();
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert!(engine.state.puzzle_solved);
+        assert_eq!(engine.state.score, 4);
+        assert!(engine.state.bankroll >= 12);
+    }
+
+    #[test]
+    fn puzzle_draw_math_reaches_expected_score() {
+        let mut engine = Engine::new(0);
+        engine
+            .dispatch(Action::StartPuzzle {
+                id: "lesson_draw_math".to_string(),
+            })
+            .unwrap();
+
+        engine.dispatch(Action::PlayHand).unwrap();
+
+        assert!(engine.state.puzzle_solved);
+        assert_eq!(engine.state.score, 10);
     }
 }
