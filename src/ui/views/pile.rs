@@ -5,10 +5,10 @@ pub fn PileWidget(count: usize, recent: Vec<String>) -> Element {
     let top = recent.first().cloned().unwrap_or_default();
     rsx! {
         div { class: "panel pile-widget", "data-testid": "pile-zone",
-            h2 { class: "deck-title", "Archive Pile" }
+            h2 { class: "deck-title", "🗂 Archive Pile" }
             div { class: "pile-face",
                 div { class: "pile-face-title", if top.is_empty() { "Empty" } else { "{top}" } }
-                div { class: "pile-face-sub", "Most recent" }
+                div { class: "pile-face-sub", "Most recently executed card" }
             }
             div { class: "pile-meta",
                 div { class: "pill", span { "Cards" } strong { "data-testid": "pile-count", "{count}" } }

@@ -52,13 +52,15 @@ pub fn RegistersBody(
     level: u32,
 ) -> Element {
     rsx! {
-        h2 { class: "hud-title", "Registers" }
-        div { class: "kv", span { "len_deck (D)" } code { "{collection_count}" } }
-        div { class: "kv", span { "len_hand (H)" } code { "{hand_count}" } }
-        div { class: "kv", span { "len_source (S)" } code { "{source_count}" } }
-        div { class: "kv", span { "len_pile (P)" } code { "{pile_count}" } }
-        div { class: "kv", span { "acc (A)" } code { "{acc}" } }
-        div { class: "kv", span { "level (L)" } code { "{level}" } }
+        h2 { class: "hud-title", "Registers Grid" }
+        div { class: "register-grid",
+            div { class: "kv", span { "📚 deck (D)" } code { "{collection_count}" } }
+            div { class: "kv", span { "🧠 hand (H)" } code { "{hand_count}" } }
+            div { class: "kv", span { "⚡ source (S)" } code { "{source_count}" } }
+            div { class: "kv", span { "🗂 pile (P)" } code { "{pile_count}" } }
+            div { class: "kv", span { "🧮 acc (A)" } code { "{acc}" } }
+            div { class: "kv", span { "🎯 level (L)" } code { "{level}" } }
+        }
     }
 }
 

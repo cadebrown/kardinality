@@ -403,37 +403,70 @@ mod imp {
         let Some(doc) = window.document() else {
             return;
         };
+        let Some(el) = doc.get_element_by_id(card_dom_id) else {
+            return;
+        };
+        let Ok(Some(parent)) = el.closest(".row-scroll") else {
+            return;
+        };
+        let Ok(container) = parent.dyn_into::<web_sys::HtmlElement>() else {
+            return;
+        };
 
+        let card_rect = el.get_bounding_client_rect();
+        let row_rect = container.get_bounding_client_rect();
+
+        let mut target = container.scroll_left() as f64;
+        // Keep a tiny edge margin so `visibleInRow` checks pass consistently.
+        let edge = 2.0_f64;
+        if card_rect.left() < row_rect.left() + edge {
+            target += card_rect.left() - (row_rect.left() + edge);
+        } else if card_rect.right() > row_rect.right() - edge {
+            target += card_rect.right() - (row_rect.right() - edge);
+        }
+
+        if !target.is_finite() {
+            return;
+        }
+        let max_scroll = (container.scroll_width() - container.client_width()).max(0) as f64;
+        target = target.clamp(0.0, max_scroll);
+        container.set_scroll_left(target.round() as i32);
+
+        // One extra RAF pass catches cases where FLIP/layout updates finish on the next frame.
         let id = card_dom_id.to_string();
         let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-            let Some(el) = doc.get_element_by_id(&id) else {
+            let Some(window2) = web_sys::window() else {
                 return;
             };
-            let Ok(Some(parent)) = el.closest(".row-scroll") else {
+            let Some(doc2) = window2.document() else {
                 return;
             };
-            let Ok(container) = parent.dyn_into::<web_sys::HtmlElement>() else {
+            let Some(el2) = doc2.get_element_by_id(&id) else {
                 return;
             };
-            let Ok(card) = el.dyn_into::<web_sys::HtmlElement>() else {
+            let Ok(Some(parent2)) = el2.closest(".row-scroll") else {
+                return;
+            };
+            let Ok(container2) = parent2.dyn_into::<web_sys::HtmlElement>() else {
                 return;
             };
 
-            // Use layout offsets (not transformed rects) for stable keyboard scrolling.
-            let card_left = card.offset_left() as f64;
-            let card_width = card.offset_width() as f64;
-            let viewport_width = container.client_width() as f64;
-            let max_scroll = (container.scroll_width() - container.client_width()).max(0) as f64;
-
-            // Center selected card in row viewport.
-            let mut target = card_left + card_width / 2.0 - viewport_width / 2.0;
-            if !target.is_finite() {
+            let card_rect2 = el2.get_bounding_client_rect();
+            let row_rect2 = container2.get_bounding_client_rect();
+            let mut target2 = container2.scroll_left() as f64;
+            let edge2 = 2.0_f64;
+            if card_rect2.left() < row_rect2.left() + edge2 {
+                target2 += card_rect2.left() - (row_rect2.left() + edge2);
+            } else if card_rect2.right() > row_rect2.right() - edge2 {
+                target2 += card_rect2.right() - (row_rect2.right() - edge2);
+            }
+            if !target2.is_finite() {
                 return;
             }
-            target = target.clamp(0.0, max_scroll);
-            container.set_scroll_left(target.round() as i32);
+            let max_scroll2 = (container2.scroll_width() - container2.client_width()).max(0) as f64;
+            target2 = target2.clamp(0.0, max_scroll2);
+            container2.set_scroll_left(target2.round() as i32);
         }) as Box<dyn FnMut()>);
-
         let _ = window.request_animation_frame(cb.as_ref().unchecked_ref());
         cb.forget();
     }
@@ -455,6 +488,43 @@ mod imp {
         pub drop_index: Option<usize>,
     }
 
+    pub fn point_zone_hint(client_x: f64, client_y: f64) -> Option<HitZone> {
+        let Some(window) = web_sys::window() else {
+            return None;
+        };
+        let Some(doc) = window.document() else {
+            return None;
+        };
+
+        let point_in_selector = |selector: &str| -> bool {
+            let Ok(found) = doc.query_selector(selector) else {
+                return false;
+            };
+            let Some(el) = found else {
+                return false;
+            };
+            let rect = el.get_bounding_client_rect();
+            client_x >= rect.left()
+                && client_x <= rect.right()
+                && client_y >= rect.top()
+                && client_y <= rect.bottom()
+        };
+
+        if point_in_selector(r#"[data-testid="hand-dropzone"]"#)
+            || point_in_selector(r#"[data-testid="hand-zone"] .row-scroll"#)
+            || point_in_selector(r#"[data-testid="hand-zone"]"#)
+        {
+            Some(HitZone::Hand)
+        } else if point_in_selector(r#"[data-testid="deck-dropzone"]"#)
+            || point_in_selector(r#"[data-testid="deck-zone"] .row-scroll"#)
+            || point_in_selector(r#"[data-testid="deck-zone"]"#)
+        {
+            Some(HitZone::Deck)
+        } else {
+            None
+        }
+    }
+
     pub fn hit_test(client_x: f64, client_y: f64) -> HitTest {
         let Some(window) = web_sys::window() else {
             return HitTest {
@@ -473,9 +543,26 @@ mod imp {
             };
         };
 
+        let point_in_selector = |selector: &str| -> bool {
+            let Ok(found) = doc.query_selector(selector) else {
+                return false;
+            };
+            let Some(el) = found else {
+                return false;
+            };
+            let rect = el.get_bounding_client_rect();
+            client_x >= rect.left()
+                && client_x <= rect.right()
+                && client_y >= rect.top()
+                && client_y <= rect.bottom()
+        };
+
+        // Geometry-first zone detection: this stays stable even when visuals overlap.
+        let zone_pref = point_zone_hint(client_x, client_y);
+
         let el = doc.element_from_point(client_x as f32, client_y as f32);
 
-        let mut zone: Option<HitZone> = None;
+        let mut zone: Option<HitZone> = zone_pref;
         if let Some(el) = el.as_ref() {
             if el
                 .closest(r#"[data-testid="hand-zone"]"#)
@@ -483,14 +570,14 @@ mod imp {
                 .flatten()
                 .is_some()
             {
-                zone = Some(HitZone::Hand);
+                zone = zone.or(Some(HitZone::Hand));
             } else if el
                 .closest(r#"[data-testid="deck-zone"]"#)
                 .ok()
                 .flatten()
                 .is_some()
             {
-                zone = Some(HitZone::Deck);
+                zone = zone.or(Some(HitZone::Deck));
             }
         }
 
@@ -527,7 +614,26 @@ mod imp {
         }
 
         // Find the nearest card element by id="card-<u64>"
-        let card_el = el.closest(r#"[id^="card-"]"#).ok().flatten();
+        let mut card_el = el.closest(r#"[id^="card-"]"#).ok().flatten();
+        if card_el.is_none() {
+            if let Ok(cards) = doc.query_selector_all(r#"[id^="card-"]"#) {
+                for i in 0..cards.length() {
+                    let Some(node) = cards.item(i) else { continue };
+                    let Ok(candidate) = node.dyn_into::<web_sys::Element>() else {
+                        continue;
+                    };
+                    let rect = candidate.get_bounding_client_rect();
+                    if client_x >= rect.left()
+                        && client_x <= rect.right()
+                        && client_y >= rect.top()
+                        && client_y <= rect.bottom()
+                    {
+                        card_el = Some(candidate);
+                        break;
+                    }
+                }
+            }
+        }
 
         let Some(card_el) = card_el else {
             return HitTest {
@@ -647,6 +753,10 @@ mod imp {
             zone: None,
             drop_index: None,
         }
+    }
+
+    pub fn point_zone_hint(_client_x: f64, _client_y: f64) -> Option<HitZone> {
+        None
     }
 }
 

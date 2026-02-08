@@ -1019,6 +1019,9 @@ pub fn App() -> Element {
                 // Decide drop target using hit-testing (WASM) or fallbacks.
                 let p = evt.data().client_coordinates();
                 let hit = anim::hit_test(p.x, p.y);
+                let zone_hint = anim::point_zone_hint(p.x, p.y);
+                // Pointer-up hit-tests can land on overlapping layers; keep the latest hover as intent.
+                let hover = drag_hover();
 
                 let mut did_change = false;
                 {
@@ -1027,28 +1030,56 @@ pub fn App() -> Element {
                     let src_zone = d.zone;
                     let src_index = d.index;
 
-                    // Determine target zone/index from card_id if possible.
+                    // Resolve target from hit-test first.
                     let mut target_zone: Option<FocusZone> = None;
                     let mut target_index: Option<usize> = None;
-                    if let Some(id) = hit.card_id {
-                        if let Some(i) = eng.state.hand.iter().position(|c| c.id == id) {
-                            target_zone = Some(FocusZone::Hand);
-                            target_index = Some(i);
-                        } else if let Some(i) = eng.state.collection.iter().position(|c| c.id == id) {
-                            target_zone = Some(FocusZone::Deck);
-                            target_index = Some(i);
-                        }
-                    } else if let Some(z) = hit.zone {
-                        target_zone = Some(match z {
+                    let mut swap: bool = false;
+                    let preferred_zone = zone_hint
+                        .map(|z| match z {
                             anim::HitZone::Hand => FocusZone::Hand,
                             anim::HitZone::Deck => FocusZone::Deck,
+                        })
+                        .or_else(|| {
+                            hit.zone.map(|z| match z {
+                                anim::HitZone::Hand => FocusZone::Hand,
+                                anim::HitZone::Deck => FocusZone::Deck,
+                            })
                         });
+
+                    if let Some(id) = hit.card_id {
+                        let hand_pos = eng.state.hand.iter().position(|c| c.id == id);
+                        let deck_pos = eng.state.collection.iter().position(|c| c.id == id);
+                        match preferred_zone {
+                            Some(FocusZone::Hand) => {
+                                if let Some(i) = hand_pos {
+                                    target_zone = Some(FocusZone::Hand);
+                                    target_index = Some(i);
+                                }
+                            }
+                            Some(FocusZone::Deck) => {
+                                if let Some(i) = deck_pos {
+                                    target_zone = Some(FocusZone::Deck);
+                                    target_index = Some(i);
+                                }
+                            }
+                            _ => {
+                                if let Some(i) = hand_pos {
+                                    target_zone = Some(FocusZone::Hand);
+                                    target_index = Some(i);
+                                } else if let Some(i) = deck_pos {
+                                    target_zone = Some(FocusZone::Deck);
+                                    target_index = Some(i);
+                                }
+                            }
+                        }
+                    }
+                    if target_zone.is_none() {
+                        target_zone = preferred_zone;
                     }
 
                     // Resolve drop mode:
                     // * If we hit a drop sliver: insert at its boundary index.
                     // * Else if we hit a card: before/after insert, or swap if centered.
-                    let mut swap: bool = false;
                     let mut insert_at: Option<usize> = hit.drop_index;
                     if insert_at.is_none() {
                         if let Some(ti) = target_index {
@@ -1060,6 +1091,40 @@ pub fn App() -> Element {
                                 insert_at = Some(if hint == 0 { ti } else { ti.saturating_add(1) });
                             }
                         }
+                    }
+
+                    // Pointer-up can miss precise card/slit targeting due overlap; fall back to
+                    // last hover intent only when hit-test didn't already indicate a cross-zone drop.
+                    let no_specific_target = target_index.is_none() && insert_at.is_none() && !swap;
+                    let should_use_hover = no_specific_target
+                        && (target_zone.is_none() || target_zone == Some(src_zone));
+                    if should_use_hover {
+                        if let Some(h) = hover {
+                            target_zone = Some(h.zone);
+                            if let Some(id) = h.swap_card_id {
+                                swap = true;
+                                target_index = match h.zone {
+                                    FocusZone::Hand => eng.state.hand.iter().position(|c| c.id == id),
+                                    FocusZone::Deck => eng.state.collection.iter().position(|c| c.id == id),
+                                    _ => None,
+                                };
+                                if target_index.is_none() {
+                                    swap = false;
+                                }
+                            } else if let Some(ins) = h.insert_index {
+                                insert_at = Some(ins);
+                            }
+                        }
+                    }
+
+                    // Last-resort fallback: if we couldn't resolve any drop zone, route across zones.
+                    // This keeps drag-and-drop responsive when pointer hit-testing is blocked by overlap.
+                    if target_zone.is_none() {
+                        target_zone = Some(match src_zone {
+                            FocusZone::Deck => FocusZone::Hand,
+                            FocusZone::Hand => FocusZone::Deck,
+                            _ => src_zone,
+                        });
                     }
 
                     match (src_zone, target_zone, target_index, swap, insert_at) {
@@ -1457,8 +1522,8 @@ pub fn App() -> Element {
                 focus_index: sidebar_index(),
             }
 
-            div { class: "main",
-                div { class: "topbar",
+            div { class: "main command-shell",
+                div { class: "topbar status-grid",
                     // Single "Run" pane: Play Hand on top, score/bank below.
                     div { class: "panel run-pane",
                         {
@@ -1483,7 +1548,7 @@ pub fn App() -> Element {
                                             },
                                             div { class: "play-head",
                                                 span { class: "play-icon", "▶" }
-                                                span { class: "play-text", "Play" }
+                                                span { class: "play-text", "Execute" }
                                             }
                                         }
                                         button {
@@ -1497,7 +1562,7 @@ pub fn App() -> Element {
                                             },
                                             div { class: "play-head",
                                                 span { class: "play-icon", "◆" }
-                                                span { class: "play-text", "Shop" }
+                                                span { class: "play-text", "Lab" }
                                             }
                                         }
                                     }
@@ -1506,7 +1571,7 @@ pub fn App() -> Element {
                                 div { class: "run-bottom",
                                     div { class: "run-strip",
                                         div { class: "strip-item",
-                                            span { class: "strip-k", "Level" }
+                                            span { class: "strip-k", "Stage" }
                                             span { class: "strip-v", "data-testid": "level-value", "{state.level}" }
                                         }
                                         div { class: "strip-item",
@@ -1514,7 +1579,7 @@ pub fn App() -> Element {
                                             span { class: "strip-v", "data-testid": "score-value", "{display_score}/{state.target_score}" }
                                         }
                                         div { class: "strip-item",
-                                            span { class: "strip-k", "Money" }
+                                            span { class: "strip-k", "Bank" }
                                             span { class: "strip-v", "data-testid": "money-value", "${display_bank}" }
                                         }
                                     }
@@ -1547,12 +1612,12 @@ pub fn App() -> Element {
                     }
                 }
 
-                div { class: "content",
-                div { class: "handrow",
+                div { class: "content playfield-grid",
+                div { class: "handrow queue-grid",
                 div { class: "handbar", "data-testid": "hand-zone",
                     div { class: "hand-title",
-                        span { "Hand" }
-                        span { class: "hint", "{display_hand_count} cards" }
+                        span { "Program Queue" }
+                        span { class: "hint", "{display_hand_count} cards • executes left to right" }
                     }
 
                     div { class: "row-scroll",
@@ -1683,8 +1748,8 @@ pub fn App() -> Element {
                 // Deck at the bottom: this is your owned collection of cards you can put into your hand.
                 div { class: "deckbar", "data-testid": "deck-zone",
                     div { class: "hand-title",
-                        span { "Deck" }
-                        span { class: "hint", "{display_collection_count} cards" }
+                        span { "Code Bank" }
+                        span { class: "hint", "{display_collection_count} cards • drag cards into Program Queue" }
                     }
 
                     div { class: "row-scroll",

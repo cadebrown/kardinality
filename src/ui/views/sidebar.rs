@@ -31,9 +31,9 @@ pub fn Sidebar(
     rsx! {
         aside { class: "sidebar",
             div { class: "brand",
-                h1 { class: "brand-title", "Kardinality" }
+                h1 { class: "brand-title", "Kardinality // Command Deck" }
                 div { class: "brand-subtitle",
-                    "retro CRT deckbuilder • cards-as-code • rust+wasm"
+                    "Grid-first card programming roguelite • Rust logic • trace-driven"
                 }
             }
 
@@ -57,7 +57,7 @@ pub fn Sidebar(
 
             if tab_value == SidebarTab::Controls {
                 div { class: "panel sidebar-panel",
-                    h3 { "Run" }
+                    h3 { "Run Controls" }
                     button {
                         "data-testid": "reset-game",
                         class: if focused && focus_index == 0 { "btn danger focused" } else { "btn danger" },
@@ -84,7 +84,7 @@ pub fn Sidebar(
                 div { class: "panel sidebar-panel",
                     h3 { "Puzzles / Tutorials" }
                     div { class: "hint",
-                        "Preset deck-hand combos that teach patterns with guided hints."
+                        "Preset deck-hand combos that teach patterns with guided hints and explicit goals."
                     }
 
                     if state.mode == kardinality::game::RunMode::Puzzle {

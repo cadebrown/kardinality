@@ -25,7 +25,7 @@ pub fn CardView(
     on_docs: EventHandler<String>,
     on_ptr_down: EventHandler<PtrDown>,
 ) -> Element {
-    let badge = format!("#{index}");
+    let badge = format!("#{}", index + 1);
 
     let def_id = card.def_id.clone();
     let (name, script, budget, icon, kind_label, kind_icon, kind_class, fn_visuals) = card
@@ -167,6 +167,7 @@ pub fn CardView(
     if dragging {
         class.push_str(" dragging");
     }
+    let extra_fx = fn_visuals.len().saturating_sub(3);
 
     rsx! {
         div {
@@ -231,7 +232,7 @@ pub fn CardView(
             }
             div { class: "card-body",
                 h3 { class: "card-title", "{name}" }
-                div { class: "card-sub", "{kind_label} • Budget: {budget}" }
+                div { class: "card-sub", "{kind_label} • budget {budget}" }
                 div { class: "card-script",
                     for (text, cls) in script_spans {
                         span { class: "tok tok-{cls}", "{text}" }
@@ -239,10 +240,16 @@ pub fn CardView(
                 }
                 if !fn_visuals.is_empty() {
                     div { class: "card-fx-row",
-                        for fx in fn_visuals {
+                        for fx in fn_visuals.iter().take(3) {
                             div { class: "card-fx-chip fx-{fx.accent}", title: "{fx.label}",
                                 span { class: "chip-icon", "{fx.icon}" }
                                 span { class: "chip-label", "{fx.label}" }
+                            }
+                        }
+                        if extra_fx > 0 {
+                            div { class: "card-fx-chip fx-more", title: "{extra_fx} more functions",
+                                span { class: "chip-icon", "+" }
+                                span { class: "chip-label", "{extra_fx} more" }
                             }
                         }
                     }

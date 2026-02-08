@@ -4,7 +4,8 @@ use dioxus::prelude::*;
 pub fn DeckWidget(deck_count: usize, collection_count: usize, level: u32) -> Element {
     rsx! {
         div { class: "panel deck-widget",
-            h2 { class: "deck-title", "Source Reactor // Lvl {level}" }
+            h2 { class: "deck-title", "⚙ Source Reactor · L{level}" }
+            div { class: "hint", "Generates new cards that flow into your Code Bank." }
 
             div { class: "deck-stack",
                 div { class: "deck-card" }
